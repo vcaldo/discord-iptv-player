@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
@@ -46,4 +47,6 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("shutting down...")
+
+	nrApp.Shutdown(5 * time.Second)
 }

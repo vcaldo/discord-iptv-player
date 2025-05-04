@@ -86,13 +86,12 @@ func (b *Bot) registerCommands(ctx context.Context, nrApp *newrelic.Application)
 		segment.End()
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
 	return nil
 }
 
 func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:bot-startup")
+	defer txn.End()
 
 	b.session.AddHandler(b.messageCreate)
 
@@ -125,29 +124,8 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 		log.Printf("error registering commands: %v", err)
 	}
 
-	log.Println("ending discord:bot-startup transaction")
-	txn.End()
-
-	// create a separate heartbeat transaction that periodically sends a heartbeat to New Relic
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				heartbeatTxn := nrApp.StartTransaction("discord:bot-heartbeat")
-				heartbeatTxn.AddAttribute("session_id", b.session.State.SessionID)
-				heartbeatTxn.End()
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
 	log.Println("bot started successfully, waiting for shutdown signal")
 
-	// Wait for context cancellation
 	<-ctx.Done()
 
 	// Create a shutdown transactiontransaction
@@ -158,9 +136,6 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 	if closeErr != nil {
 		shutdownTxn.NoticeError(closeErr)
 	}
-
-	// Force this transaction to be sent by adding a delay
-	time.Sleep(100 * time.Millisecond)
 
 	return closeErr
 }
