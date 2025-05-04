@@ -138,7 +138,7 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 			case <-ticker.C:
 				heartbeatTxn := nrApp.StartTransaction("discord:bot-heartbeat")
 				heartbeatTxn.AddAttribute("session_id", b.session.State.SessionID)
-\				heartbeatTxn.End()
+				heartbeatTxn.End()
 			case <-ctx.Done():
 				return
 			}
