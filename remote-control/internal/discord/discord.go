@@ -125,7 +125,26 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 		log.Printf("error registering commands: %v", err)
 	}
 
+	log.Println("ending discord:bot-startup transaction")
 	txn.End()
+
+	// create a separate heartbeat transaction that periodically sends a heartbeat to New Relic
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				heartbeatTxn := nrApp.StartTransaction("discord:bot-heartbeat")
+				heartbeatTxn.AddAttribute("session_id", b.session.State.SessionID)
+				heartbeatTxn.AddAttribute("session_state", b.session.State)
+				heartbeatTxn.End()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	log.Println("bot started successfully, waiting for shutdown signal")
 
