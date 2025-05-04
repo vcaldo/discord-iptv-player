@@ -28,6 +28,7 @@ func main() {
 	)
 	if err != nil {
 		log.Printf("error initializing New Relic: %v", err)
+		log.Println("continuing without instrumentation")
 	} else {
 		log.Println("new relic initialized successfully")
 	}

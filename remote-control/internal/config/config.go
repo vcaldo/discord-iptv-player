@@ -23,6 +23,6 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
-	log.Printf("loaded configuration: %+v", cfg)
+	log.Printf("configuration loaded")
 	return &cfg, nil
 }
