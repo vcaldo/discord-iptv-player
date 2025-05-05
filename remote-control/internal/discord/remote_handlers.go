@@ -8,7 +8,7 @@ import (
 	"github.com/newrelic/go-agent/v3/newrelic"
 )
 
-func handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
+func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-application-command")
 	defer txn.End()
 
@@ -16,9 +16,9 @@ func handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *disc
 
 	switch i.ApplicationCommandData().Name {
 	case "tv":
-		return handleTvCommand(ctx, s, i, nrApp)
+		return b.handleTvCommand(ctx, s, i, nrApp)
 	case "stop":
-		return handleStopCommand(ctx, s, i, nrApp)
+		return b.handleStopCommand(ctx, s, i, nrApp)
 	default:
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -29,7 +29,7 @@ func handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *disc
 	}
 }
 
-func handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
+func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-tv-command")
 	defer txn.End()
 
@@ -63,11 +63,10 @@ func handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.Int
 	})
 }
 
-func handleStopCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
+func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-stop-command")
 	defer txn.End()
 
-	// Associate context with transaction
 	ctx = newrelic.NewContext(ctx, txn)
 
 	// TODO: Implement actual TV player integration to stop playback

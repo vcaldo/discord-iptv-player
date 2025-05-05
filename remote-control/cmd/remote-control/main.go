@@ -10,6 +10,7 @@ import (
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/discord"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
 func main() {
@@ -25,6 +26,7 @@ func main() {
 	nrApp, err := newrelic.NewApplication(
 		newrelic.ConfigAppName(config.NewRelicAppName),
 		newrelic.ConfigLicense(config.NewRelicLicenseKey),
+		newrelic.ConfigDistributedTracerEnabled(true),
 		newrelic.ConfigAppLogForwardingEnabled(true),
 	)
 	if err != nil {
@@ -34,7 +36,13 @@ func main() {
 		log.Println("new relic initialized successfully")
 	}
 
-	discordBot, err := discord.NewBot(config, nrApp)
+	redisClient, err := redis.NewClient(ctx, config, nrApp)
+	if err != nil {
+		log.Fatalf("error initializing Redis client: %v", err)
+	}
+	defer redisClient.Close()
+
+	discordBot, err := discord.NewBot(config, redisClient, nrApp)
 	if err != nil {
 		log.Fatalf("error initializing Discord bot: %v", err)
 	}
