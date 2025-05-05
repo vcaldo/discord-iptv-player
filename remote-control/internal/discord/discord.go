@@ -39,61 +39,9 @@ func NewBot(cfg *config.Config, nrApp *newrelic.Application) (*Bot, error) {
 	}, nil
 }
 
-func (b *Bot) commands() []*discordgo.ApplicationCommand {
-	return []*discordgo.ApplicationCommand{
-		{
-			Name:        "ping",
-			Description: "Responds with pong to check if the bot is online",
-		},
-		{
-			Name:        "play",
-			Description: "Play a TV channel",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "channel",
-					Description: "The TV channel to play",
-					Required:    true,
-				},
-			},
-		},
-		{
-			Name:        "stop",
-			Description: "Stop currently playing TV channel",
-		},
-	}
-}
-
-func (b *Bot) registerCommands(ctx context.Context, nrApp *newrelic.Application) error {
-	txn := nrApp.StartTransaction("discord:register-all-commands")
-	defer txn.End()
-
-	log.Println("registering commands...")
-
-	appID := b.session.State.User.ID
-
-	for _, cmd := range b.commands() {
-		segment := txn.StartSegment("register-command:" + cmd.Name)
-
-		_, err := b.session.ApplicationCommandCreate(appID, "", cmd)
-		if err != nil {
-			segment.End()
-			txn.NoticeError(err)
-			log.Printf("error registering '%s' command: %v", cmd.Name, err)
-			return err
-		}
-		log.Printf("successfully registered command: %s", cmd.Name)
-		segment.End()
-	}
-
-	return nil
-}
-
 func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:bot-startup")
 	defer txn.End()
-
-	b.session.AddHandler(b.messageCreate)
 
 	b.session.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if i.Type == discordgo.InteractionApplicationCommand {
@@ -101,7 +49,6 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 			cmdTxn.AddAttribute("command_type", i.ApplicationCommandData().Name)
 
 			err := handleApplicationCommand(ctx, s, i, nrApp)
-
 			if err != nil {
 				cmdTxn.NoticeError(err)
 				log.Printf("error handling command: %v", err)
@@ -128,7 +75,6 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 
 	<-ctx.Done()
 
-	// Create a shutdown transactiontransaction
 	shutdownTxn := nrApp.StartTransaction("discord:bot-shutdown")
 	defer shutdownTxn.End()
 
@@ -138,14 +84,4 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 	}
 
 	return closeErr
-}
-
-func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
-	if m.Content == "!ping" {
-		s.ChannelMessageSend(m.ChannelID, "Pong!")
-	}
 }

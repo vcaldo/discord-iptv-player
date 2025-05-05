@@ -13,10 +13,8 @@ func handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *disc
 	defer txn.End()
 
 	switch i.ApplicationCommandData().Name {
-	case "ping":
-		return handlePingCommand(ctx, s, i, nrApp)
-	case "play":
-		return handlePlayCommand(ctx, s, i, nrApp)
+	case "tv":
+		return handleTvCommand(ctx, s, i, nrApp)
 	case "stop":
 		return handleStopCommand(ctx, s, i, nrApp)
 	default:
@@ -29,20 +27,8 @@ func handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *disc
 	}
 }
 
-func handlePingCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
-	txn := nrApp.StartTransaction("discord:handle-ping-command")
-	defer txn.End()
-
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "Pong!",
-		},
-	})
-}
-
-func handlePlayCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
-	txn := nrApp.StartTransaction("discord:handle-play-command")
+func handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-tv-command")
 	defer txn.End()
 
 	options := i.ApplicationCommandData().Options
