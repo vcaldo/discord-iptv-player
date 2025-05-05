@@ -33,6 +33,8 @@ func (b *Bot) registerCommands(ctx context.Context, nrApp *newrelic.Application)
 	txn := nrApp.StartTransaction("discord:register-all-commands")
 	defer txn.End()
 
+	ctx = newrelic.NewContext(ctx, txn)
+
 	log.Println("registering commands...")
 
 	appID := b.session.State.User.ID

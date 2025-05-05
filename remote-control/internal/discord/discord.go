@@ -43,12 +43,15 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:bot-startup")
 	defer txn.End()
 
+	ctx = newrelic.NewContext(ctx, txn)
+
 	b.session.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if i.Type == discordgo.InteractionApplicationCommand {
 			cmdTxn := nrApp.StartTransaction("discord:incoming-command")
 			cmdTxn.AddAttribute("command_type", i.ApplicationCommandData().Name)
 
-			err := handleApplicationCommand(ctx, s, i, nrApp)
+			cmdCtx := newrelic.NewContext(ctx, cmdTxn)
+			err := handleApplicationCommand(cmdCtx, s, i, nrApp)
 			if err != nil {
 				cmdTxn.NoticeError(err)
 				log.Printf("error handling command: %v", err)

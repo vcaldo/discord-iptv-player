@@ -12,6 +12,8 @@ func handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn := nrApp.StartTransaction("discord:handle-application-command")
 	defer txn.End()
 
+	ctx = newrelic.NewContext(ctx, txn)
+
 	switch i.ApplicationCommandData().Name {
 	case "tv":
 		return handleTvCommand(ctx, s, i, nrApp)
@@ -30,6 +32,8 @@ func handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *disc
 func handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-tv-command")
 	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
 
 	options := i.ApplicationCommandData().Options
 	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
@@ -62,6 +66,9 @@ func handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.Int
 func handleStopCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-stop-command")
 	defer txn.End()
+
+	// Associate context with transaction
+	ctx = newrelic.NewContext(ctx, txn)
 
 	// TODO: Implement actual TV player integration to stop playback
 
