@@ -10,6 +10,7 @@ import (
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/discord"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
@@ -41,6 +42,13 @@ func main() {
 		log.Fatalf("error initializing Redis client: %v", err)
 	}
 	defer redisClient.Close()
+
+	playlist, err := m3u.GetPlaylistFromFile("C:\\Users\\vini\\lab\\discord-iptv-player\\remote-control\\playlist.m3u")
+	if err != nil {
+		log.Fatalf("error loading playlist: %v", err)
+	}
+
+	log.Printf("playlist length: %d", len(playlist.Channels))
 
 	discordBot, err := discord.NewBot(config, redisClient, nrApp)
 	if err != nil {
