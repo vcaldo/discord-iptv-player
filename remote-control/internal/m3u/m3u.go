@@ -2,6 +2,7 @@ package m3u
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/newrelic/go-agent/v3/newrelic"
 )
 
 type TvChannel struct {
@@ -30,14 +33,19 @@ type Playlist struct {
 	Updated  time.Time   `json:"updated"`
 }
 
-func GetPlaylist(url string, name string) (*Playlist, error) {
-	content, err := downloadPlaylist(url)
+func GetPlaylist(ctx context.Context, url string, name string, nrApp *newrelic.Application) (*Playlist, error) {
+	txn := nrApp.StartTransaction("m3u:get-playlist")
+	defer txn.End()
+
+	content, err := downloadPlaylist(ctx, url)
 	if err != nil {
+		txn.NoticeError(err)
 		return nil, fmt.Errorf("failed to download playlist: %w", err)
 	}
 
-	playlist, err := parsePlaylist(content, name)
+	playlist, err := parsePlaylist(ctx, content, name)
 	if err != nil {
+		txn.NoticeError(err)
 		return nil, fmt.Errorf("failed to parse playlist: %w", err)
 	}
 
@@ -47,17 +55,22 @@ func GetPlaylist(url string, name string) (*Playlist, error) {
 	return playlist, nil
 }
 
-func GetPlaylistFromFile(filePath string) (*Playlist, error) {
-	content, err := readFile(filePath)
+func GetPlaylistFromFile(ctx context.Context, filePath string, nrApp *newrelic.Application) (*Playlist, error) {
+	txn := nrApp.StartTransaction("m3u:get-playlist-from-file")
+	defer txn.End()
+
+	content, err := readFile(ctx, filePath)
 	if err != nil {
+		txn.NoticeError(err)
 		return nil, fmt.Errorf("failed to read playlist file: %w", err)
 	}
 
 	name := filepath.Base(filePath)
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 
-	playlist, err := parsePlaylist(content, name)
+	playlist, err := parsePlaylist(ctx, content, name)
 	if err != nil {
+		txn.NoticeError(err)
 		return nil, fmt.Errorf("failed to parse playlist: %w", err)
 	}
 
@@ -67,36 +80,62 @@ func GetPlaylistFromFile(filePath string) (*Playlist, error) {
 	return playlist, nil
 }
 
-func downloadPlaylist(url string) (string, error) {
-	resp, err := http.Get(url)
+func downloadPlaylist(ctx context.Context, url string) (string, error) {
+	txn := newrelic.FromContext(ctx)
+	segment := txn.StartSegment("download-playlist")
+	defer segment.End()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		txn.NoticeError(err)
+		return "", err
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		txn.NoticeError(err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download playlist, status code: %d", resp.StatusCode)
+		err := fmt.Errorf("failed to download playlist, status code: %d", resp.StatusCode)
+		txn.NoticeError(err)
+		return "", err
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		txn.NoticeError(err)
 		return "", err
 	}
 
 	return string(body), nil
 }
 
-func readFile(filePath string) (string, error) {
+func readFile(ctx context.Context, filePath string) (string, error) {
+	txn := newrelic.FromContext(ctx)
+	segment := txn.StartSegment("read-file")
+	defer segment.End()
+
 	content, err := os.ReadFile(filePath)
 	if err != nil {
+		txn.NoticeError(err)
 		return "", err
 	}
 	return string(content), nil
 }
 
-func parsePlaylist(content string, name string) (*Playlist, error) {
+func parsePlaylist(ctx context.Context, content string, name string) (*Playlist, error) {
+	txn := newrelic.FromContext(ctx)
+	segment := txn.StartSegment("parse-playlist")
+	defer segment.End()
+
 	if !strings.HasPrefix(strings.TrimSpace(content), "#EXTM3U") {
-		return nil, errors.New("invalid M3U format, missing #EXTM3U header")
+		err := errors.New("invalid M3U format, missing #EXTM3U header")
+		txn.NoticeError(err)
+		return nil, err
 	}
 
 	playlist := &Playlist{
@@ -136,7 +175,7 @@ func parsePlaylist(content string, name string) (*Playlist, error) {
 
 			// Extract attributes from the first part
 			attrPart := parts[0]
-			attributes := extractAttributes(attrPart)
+			attributes := extractAttributes(ctx, attrPart)
 
 			// Set logo and category if available
 			if logo, ok := attributes["tvg-logo"]; ok {
@@ -154,13 +193,18 @@ func parsePlaylist(content string, name string) (*Playlist, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
+		txn.NoticeError(err)
 		return nil, err
 	}
 
 	return playlist, nil
 }
 
-func extractAttributes(s string) map[string]string {
+func extractAttributes(ctx context.Context, s string) map[string]string {
+	txn := newrelic.FromContext(ctx)
+	segment := txn.StartSegment("extract-attributes")
+	defer segment.End()
+
 	attributes := make(map[string]string)
 
 	// Find all attribute patterns like key="value" or key='value'

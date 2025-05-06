@@ -43,12 +43,19 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	playlist, err := m3u.GetPlaylistFromFile("C:\\Users\\vini\\lab\\discord-iptv-player\\remote-control\\playlist.m3u")
+	playlist, err := m3u.GetPlaylistFromFile(ctx, "C:\\Users\\vini\\lab\\discord-iptv-player\\remote-control\\playlist.m3u", nrApp)
 	if err != nil {
 		log.Fatalf("error loading playlist: %v", err)
 	}
 
 	log.Printf("playlist length: %d", len(playlist.Channels))
+
+	playlist2, err := m3u.GetPlaylist(ctx, "http://mag.spainott.net:80/get.php?username=DTVYLPBOWA&password=AZ5ZMJHAIA&output=ts&type=m3u_plus", "iptv2", nrApp)
+	if err != nil {
+		log.Fatalf("error loading playlist2: %v", err)
+	}
+
+	log.Printf("playlist2 length: %d", len(playlist2.Channels))
 
 	discordBot, err := discord.NewBot(config, redisClient, nrApp)
 	if err != nil {
