@@ -35,6 +35,8 @@ func main() {
 		log.Println("continuing without instrumentation")
 	} else {
 		log.Println("new relic initialized successfully")
+		// Allow some time for New Relic to initialize
+		time.Sleep(1 * time.Second)
 	}
 
 	redisClient, err := redis.NewClient(ctx, config, nrApp)
@@ -47,15 +49,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("error loading playlist: %v", err)
 	}
-
 	log.Printf("playlist length: %d", len(playlist.Channels))
 
-	playlist2, err := m3u.GetPlaylist(ctx, config.PlaylistURL, "iptv2", nrApp)
-	if err != nil {
-		log.Fatalf("error loading playlist2: %v", err)
-	}
-
-	log.Printf("playlist2 length: %d", len(playlist2.Channels))
+	redisClient.StorePlaylist(playlist, "123sss")
 
 	discordBot, err := discord.NewBot(config, redisClient, nrApp)
 	if err != nil {
