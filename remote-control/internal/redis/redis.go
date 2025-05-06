@@ -97,7 +97,7 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			return fmt.Errorf("failed to store playlist in Redis: %w", err)
 		}
 
-		log.Printf("Playlist '%s' stored successfully for guild %s with %d channels",
+		log.Printf("playlist '%s' stored successfully for guild %s with %d channels",
 			playlist.Name, guildID, len(playlist.Channels))
 		return nil
 	})
@@ -184,7 +184,7 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 			playlist.Channels = append(playlist.Channels, channel)
 		}
 
-		log.Printf("Retrieved playlist '%s' for guild %s with %d channels",
+		log.Printf("retrieved playlist '%s' for guild %s with %d channels",
 			playlist.Name, guildID, len(playlist.Channels))
 		return nil
 	})
@@ -257,7 +257,7 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 			return fmt.Errorf("failed to delete playlist from Redis: %w", err)
 		}
 
-		log.Printf("Playlist '%s' deleted successfully for guild %s", playlistName, guildID)
+		log.Printf("playlist '%s' deleted successfully for guild %s", playlistName, guildID)
 		return nil
 	})
 }
@@ -302,7 +302,7 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 			Enabled:  channelData["enabled"] == "1" || channelData["enabled"] == "true",
 		}
 
-		log.Printf("Retrieved channel '%s' from playlist '%s' for guild %s",
+		log.Printf("retrieved channel '%s' from playlist '%s' for guild %s",
 			channel.Name, playlistName, guildID)
 
 		return nil

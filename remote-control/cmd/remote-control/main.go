@@ -55,7 +55,7 @@ func main() {
 	}
 
 	go func() {
-		if err := discordBot.Start(ctx, nrApp); err != nil {
+		if err := discordBot.Start(ctx, config, nrApp); err != nil {
 			log.Printf("error running Discord bot: %v", err)
 		}
 	}()

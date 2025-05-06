@@ -6,9 +6,10 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 )
 
-func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
+func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-application-command")
 	defer txn.End()
 
@@ -16,7 +17,7 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 
 	switch i.ApplicationCommandData().Name {
 	case "tv":
-		return b.handleTvCommand(ctx, s, i, nrApp)
+		return b.handleTvCommand(ctx, s, i, config, nrApp)
 	case "stop":
 		return b.handleStopCommand(ctx, s, i, nrApp)
 	default:
@@ -29,7 +30,7 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 	}
 }
 
-func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
+func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-tv-command")
 	defer txn.End()
 
@@ -41,9 +42,9 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		optionMap[opt.Name] = opt
 	}
 
-	var channelName string
+	var channelID string
 	if opt, ok := optionMap["channel"]; ok {
-		channelName = opt.StringValue()
+		channelID = opt.StringValue()
 	} else {
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -53,12 +54,15 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		})
 	}
 
-	// TODO: Implement actual TV player integration
+	channel, err := b.redis.GetChannel(config.DiscordGuildID, config.PlaylistName, channelID)
+	if err != nil {
+		txn.NoticeError(err)
+	}
 
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: fmt.Sprintf("Starting to play channel: %s", channelName),
+			Content: fmt.Sprintf("Starting to play channel: %s", channel.Name),
 		},
 	})
 }

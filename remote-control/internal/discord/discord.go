@@ -42,7 +42,7 @@ func NewBot(cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Appli
 	}, nil
 }
 
-func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
+func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:bot-startup")
 	defer txn.End()
 
@@ -54,7 +54,7 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 			cmdTxn.AddAttribute("command_type", i.ApplicationCommandData().Name)
 
 			cmdCtx := newrelic.NewContext(ctx, cmdTxn)
-			err := b.handleApplicationCommand(cmdCtx, s, i, nrApp)
+			err := b.handleApplicationCommand(cmdCtx, s, i, config, nrApp)
 			if err != nil {
 				cmdTxn.NoticeError(err)
 				log.Printf("error handling command: %v", err)
