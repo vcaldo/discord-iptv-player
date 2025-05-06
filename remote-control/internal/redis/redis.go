@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -167,11 +166,9 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 				Category: channelData["category"],
 			}
 
-			// Parse ID
+			// Get ID as string
 			if idStr, ok := channelData["id"]; ok && idStr != "" {
-				if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-					channel.ID = id
-				}
+				channel.ID = idStr
 			}
 
 			// Parse boolean fields
@@ -263,6 +260,55 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 		log.Printf("Playlist '%s' deleted successfully for guild %s", playlistName, guildID)
 		return nil
 	})
+}
+
+func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*models.TvChannel, error) {
+	var channel *models.TvChannel
+
+	err := c.instrumentOperation("get-channel", func() error {
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+
+		exists, err := c.rdb.Exists(playlistKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to check if playlist exists: %w", err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+		}
+
+		channelKey := fmt.Sprintf("%s:%s", channelsKey, channelID)
+
+		exists, err = c.rdb.Exists(channelKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to check if channel exists: %w", err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("channel with ID '%s' not found in playlist '%s'", channelID, playlistName)
+		}
+
+		channelData, err := c.rdb.HGetAll(channelKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve channel data: %w", err)
+		}
+
+		channel = &models.TvChannel{
+			ID:       channelID,
+			Name:     channelData["name"],
+			Url:      channelData["url"],
+			Logo:     channelData["logo"],
+			Category: channelData["category"],
+			Favorite: channelData["favorite"] == "1" || channelData["favorite"] == "true",
+			Enabled:  channelData["enabled"] == "1" || channelData["enabled"] == "true",
+		}
+
+		log.Printf("Retrieved channel '%s' from playlist '%s' for guild %s",
+			channel.Name, playlistName, guildID)
+
+		return nil
+	})
+
+	return channel, err
 }
 
 func (c *Client) Close() error {

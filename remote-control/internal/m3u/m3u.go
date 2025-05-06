@@ -151,7 +151,7 @@ func parsePlaylist(ctx context.Context, content string, name string) (*models.Pl
 		if strings.HasPrefix(line, "#EXTINF:") {
 			// Parse channel info line
 			currentChannel = &models.TvChannel{
-				ID:       channelID,
+				ID:       fmt.Sprintf("%d", channelID),
 				Favorite: false,
 				Enabled:  true,
 			}

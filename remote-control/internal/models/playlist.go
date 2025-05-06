@@ -5,7 +5,7 @@ import (
 )
 
 type TvChannel struct {
-	ID       int64  `json:"id"`
+	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Url      string `json:"url"`
 	Logo     string `json:"logo"`
