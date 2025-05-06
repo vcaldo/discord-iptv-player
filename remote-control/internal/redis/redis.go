@@ -10,7 +10,7 @@ import (
 	"github.com/go-redis/redis"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
-	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
 type Client struct {
@@ -63,7 +63,7 @@ func (c *Client) instrumentOperation(operationName string, fn func() error) erro
 	return err
 }
 
-func (c *Client) StorePlaylist(playlist *m3u.Playlist, guildID string) error {
+func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error {
 	return c.instrumentOperation("store-playlist", func() error {
 		// Convert playlist to JSON
 		playlistJSON, err := json.Marshal(playlist)
@@ -92,8 +92,8 @@ func (c *Client) StorePlaylist(playlist *m3u.Playlist, guildID string) error {
 	})
 }
 
-func (c *Client) GetPlaylist(guildID, playlistName string) (*m3u.Playlist, error) {
-	var playlist *m3u.Playlist
+func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, error) {
+	var playlist *models.Playlist
 
 	err := c.instrumentOperation("get-playlist", func() error {
 		key := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
@@ -108,7 +108,7 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*m3u.Playlist, error
 		}
 
 		// Unmarshal JSON into playlist struct
-		playlist = &m3u.Playlist{}
+		playlist = &models.Playlist{}
 		if err := json.Unmarshal(playlistJSON, playlist); err != nil {
 			return fmt.Errorf("failed to unmarshal playlist: %w", err)
 		}
