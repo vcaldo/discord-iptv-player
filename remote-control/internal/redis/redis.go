@@ -2,9 +2,9 @@ package redis
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -65,29 +65,60 @@ func (c *Client) instrumentOperation(operationName string, fn func() error) erro
 
 func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error {
 	return c.instrumentOperation("store-playlist", func() error {
-		// Convert playlist to JSON
-		playlistJSON, err := json.Marshal(playlist)
-		if err != nil {
-			return fmt.Errorf("failed to marshal playlist: %w", err)
+		// Create base keys
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlist.Name)
+		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+
+		// Use Redis pipeline for better performance
+		pipe := c.rdb.Pipeline()
+
+		// Store playlist metadata in a hash
+		pipe.HSet(playlistKey, "name", playlist.Name)
+		pipe.HSet(playlistKey, "source", playlist.Source)
+		pipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
+
+		// Set expiry time (30 days) for the playlist
+		pipe.Expire(playlistKey, 30*24*time.Hour)
+
+		// Remove old channels list if it exists
+		pipe.Del(channelsKey)
+
+		// Store each channel separately
+		for i, channel := range playlist.Channels {
+			// Create channel hash key
+			channelKey := fmt.Sprintf("%s:%d", channelsKey, i)
+
+			// Store channel data as hash fields
+			pipe.HSet(channelKey, "id", channel.ID)
+			pipe.HSet(channelKey, "name", channel.Name)
+			pipe.HSet(channelKey, "url", channel.Url)
+			pipe.HSet(channelKey, "logo", channel.Logo)
+			pipe.HSet(channelKey, "category", channel.Category)
+			pipe.HSet(channelKey, "favorite", channel.Favorite)
+			pipe.HSet(channelKey, "enabled", channel.Enabled)
+
+			// Set expiry time for channel data
+			pipe.Expire(channelKey, 30*24*time.Hour)
+
+			// Add channel index to a set for tracking
+			pipe.SAdd(channelsKey, i)
 		}
 
-		// Store playlist with guild-specific key
-		key := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlist.Name)
+		// Set expiry for channels set
+		pipe.Expire(channelsKey, 30*24*time.Hour)
 
-		// Store with expiry time (30 days)
-		err = c.rdb.Set(key, playlistJSON, 30*24*time.Hour).Err()
+		// Store playlist name in a set for easy listing
+		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
+		pipe.SAdd(setKey, playlist.Name)
+
+		// Execute all commands in the pipeline
+		_, err := pipe.Exec()
 		if err != nil {
 			return fmt.Errorf("failed to store playlist in Redis: %w", err)
 		}
 
-		// Store playlist name in a set for easy listing
-		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
-		err = c.rdb.SAdd(setKey, playlist.Name).Err()
-		if err != nil {
-			return fmt.Errorf("failed to add playlist to set: %w", err)
-		}
-
-		log.Printf("Playlist '%s' stored successfully for guild %s", playlist.Name, guildID)
+		log.Printf("Playlist '%s' stored successfully for guild %s with %d channels",
+			playlist.Name, guildID, len(playlist.Channels))
 		return nil
 	})
 }
@@ -96,23 +127,89 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 	var playlist *models.Playlist
 
 	err := c.instrumentOperation("get-playlist", func() error {
-		key := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		// Create key for playlist and channels
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 
-		// Get playlist JSON from Redis
-		playlistJSON, err := c.rdb.Get(key).Bytes()
+		// Check if playlist exists
+		exists, err := c.rdb.Exists(playlistKey).Result()
 		if err != nil {
-			if err == redis.Nil {
-				return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+			return fmt.Errorf("failed to check if playlist exists: %w", err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+		}
+
+		// Get playlist metadata from hash
+		playlistData, err := c.rdb.HGetAll(playlistKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve playlist data: %w", err)
+		}
+
+		// Initialize playlist
+		playlist = &models.Playlist{
+			Name:     playlistData["name"],
+			Source:   playlistData["source"],
+			Channels: []models.TvChannel{},
+		}
+
+		// Parse updated time
+		if updated, ok := playlistData["updated"]; ok && updated != "" {
+			parsedTime, err := time.Parse(time.RFC3339, updated)
+			if err != nil {
+				log.Printf("Warning: failed to parse updated time: %v", err)
+			} else {
+				playlist.Updated = parsedTime
 			}
-			return fmt.Errorf("failed to retrieve playlist from Redis: %w", err)
 		}
 
-		// Unmarshal JSON into playlist struct
-		playlist = &models.Playlist{}
-		if err := json.Unmarshal(playlistJSON, playlist); err != nil {
-			return fmt.Errorf("failed to unmarshal playlist: %w", err)
+		// Get channel indices from set
+		channelIndices, err := c.rdb.SMembers(channelsKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve channel indices: %w", err)
 		}
 
+		// Retrieve each channel
+		for _, indexStr := range channelIndices {
+			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
+
+			// Get channel data
+			channelData, err := c.rdb.HGetAll(channelKey).Result()
+			if err != nil {
+				log.Printf("Warning: failed to retrieve channel data for index %s: %v", indexStr, err)
+				continue
+			}
+
+			// Create channel object
+			channel := models.TvChannel{
+				Name:     channelData["name"],
+				Url:      channelData["url"],
+				Logo:     channelData["logo"],
+				Category: channelData["category"],
+			}
+
+			// Parse ID
+			if idStr, ok := channelData["id"]; ok && idStr != "" {
+				if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+					channel.ID = id
+				}
+			}
+
+			// Parse boolean fields
+			if favoriteStr, ok := channelData["favorite"]; ok {
+				channel.Favorite = favoriteStr == "1" || favoriteStr == "true"
+			}
+
+			if enabledStr, ok := channelData["enabled"]; ok {
+				channel.Enabled = enabledStr == "1" || enabledStr == "true"
+			}
+
+			// Add channel to playlist
+			playlist.Channels = append(playlist.Channels, channel)
+		}
+
+		log.Printf("Retrieved playlist '%s' for guild %s with %d channels",
+			playlist.Name, guildID, len(playlist.Channels))
 		return nil
 	})
 
@@ -140,18 +237,48 @@ func (c *Client) ListPlaylists(guildID string) ([]string, error) {
 
 func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 	return c.instrumentOperation("delete-playlist", func() error {
-		// Delete the playlist itself
-		key := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
-		err := c.rdb.Del(key).Err()
+		// Create keys
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+
+		// Check if playlist exists
+		exists, err := c.rdb.Exists(playlistKey).Result()
 		if err != nil {
-			return fmt.Errorf("failed to delete playlist from Redis: %w", err)
+			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
+		if exists == 0 {
+			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+		}
+
+		// Use pipeline for better performance
+		pipe := c.rdb.Pipeline()
+
+		// Get all channel indices before deleting
+		channelIndices, err := c.rdb.SMembers(channelsKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve channel indices: %w", err)
+		}
+
+		// Delete each channel entry
+		for _, indexStr := range channelIndices {
+			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
+			pipe.Del(channelKey)
+		}
+
+		// Delete the channels set
+		pipe.Del(channelsKey)
+
+		// Delete the playlist metadata
+		pipe.Del(playlistKey)
 
 		// Remove from the set of playlists
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
-		err = c.rdb.SRem(setKey, playlistName).Err()
+		pipe.SRem(setKey, playlistName)
+
+		// Execute all commands in the pipeline
+		_, err = pipe.Exec()
 		if err != nil {
-			return fmt.Errorf("failed to remove playlist from set: %w", err)
+			return fmt.Errorf("failed to delete playlist from Redis: %w", err)
 		}
 
 		log.Printf("Playlist '%s' deleted successfully for guild %s", playlistName, guildID)
