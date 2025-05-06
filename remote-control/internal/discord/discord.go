@@ -8,14 +8,16 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
 type Bot struct {
 	session *discordgo.Session
 	config  *config.Config
+	redis   *redis.Client
 }
 
-func NewBot(cfg *config.Config, nrApp *newrelic.Application) (*Bot, error) {
+func NewBot(cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application) (*Bot, error) {
 	txn := nrApp.StartTransaction("discord:initialize-bot")
 	defer txn.End()
 
@@ -36,6 +38,7 @@ func NewBot(cfg *config.Config, nrApp *newrelic.Application) (*Bot, error) {
 	return &Bot{
 		session: session,
 		config:  cfg,
+		redis:   redisClient,
 	}, nil
 }
 
@@ -43,12 +46,15 @@ func (b *Bot) Start(ctx context.Context, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:bot-startup")
 	defer txn.End()
 
+	ctx = newrelic.NewContext(ctx, txn)
+
 	b.session.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if i.Type == discordgo.InteractionApplicationCommand {
 			cmdTxn := nrApp.StartTransaction("discord:incoming-command")
 			cmdTxn.AddAttribute("command_type", i.ApplicationCommandData().Name)
 
-			err := handleApplicationCommand(ctx, s, i, nrApp)
+			cmdCtx := newrelic.NewContext(ctx, cmdTxn)
+			err := b.handleApplicationCommand(cmdCtx, s, i, nrApp)
 			if err != nil {
 				cmdTxn.NoticeError(err)
 				log.Printf("error handling command: %v", err)

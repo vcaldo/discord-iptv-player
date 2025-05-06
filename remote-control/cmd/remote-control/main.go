@@ -10,6 +10,8 @@ import (
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/discord"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
 func main() {
@@ -25,6 +27,7 @@ func main() {
 	nrApp, err := newrelic.NewApplication(
 		newrelic.ConfigAppName(config.NewRelicAppName),
 		newrelic.ConfigLicense(config.NewRelicLicenseKey),
+		newrelic.ConfigDistributedTracerEnabled(true),
 		newrelic.ConfigAppLogForwardingEnabled(true),
 	)
 	if err != nil {
@@ -34,7 +37,27 @@ func main() {
 		log.Println("new relic initialized successfully")
 	}
 
-	discordBot, err := discord.NewBot(config, nrApp)
+	redisClient, err := redis.NewClient(ctx, config, nrApp)
+	if err != nil {
+		log.Fatalf("error initializing Redis client: %v", err)
+	}
+	defer redisClient.Close()
+
+	playlist, err := m3u.GetPlaylistFromFile(ctx, "C:\\Users\\vini\\lab\\discord-iptv-player\\remote-control\\playlist.m3u", nrApp)
+	if err != nil {
+		log.Fatalf("error loading playlist: %v", err)
+	}
+
+	log.Printf("playlist length: %d", len(playlist.Channels))
+
+	playlist2, err := m3u.GetPlaylist(ctx, config.PlaylistURL, "iptv2", nrApp)
+	if err != nil {
+		log.Fatalf("error loading playlist2: %v", err)
+	}
+
+	log.Printf("playlist2 length: %d", len(playlist2.Channels))
+
+	discordBot, err := discord.NewBot(config, redisClient, nrApp)
 	if err != nil {
 		log.Fatalf("error initializing Discord bot: %v", err)
 	}
