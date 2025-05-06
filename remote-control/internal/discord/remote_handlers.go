@@ -36,6 +36,9 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 
 	ctx = newrelic.NewContext(ctx, txn)
 
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
 	options := i.ApplicationCommandData().Options
 	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
 	for _, opt := range options {
@@ -59,6 +62,9 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		txn.NoticeError(err)
 	}
 
+	txn.AddAttribute("channel_id", channelID)
+	txn.AddAttribute("channel_name", channel.Name)
+
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -72,6 +78,9 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 	defer txn.End()
 
 	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
 
 	// TODO: Implement actual TV player integration to stop playback
 
