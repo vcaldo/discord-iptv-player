@@ -18,7 +18,7 @@ type Config struct {
 	RedisDB               int    `envconfig:"REDIS_DB" default:"0"`
 	PlaylistURL           string `envconfig:"PLAYLIST_URL" required:"true"`
 	PlaylistName          string `envconfig:"PLAYLIST_NAME" default:"iptv"`
-	PlaylistMaxAgeDays    int    `envconfig:"PLAYLIST_MAX_AGE_DAYS" default:"30"`
+	PlaylistMaxAgeDays    int    `envconfig:"PLAYLIST_MAX_AGE_DAYS" default:"10"`
 }
 
 func LoadConfig() (*Config, error) {
