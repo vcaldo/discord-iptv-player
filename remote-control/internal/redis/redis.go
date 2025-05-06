@@ -65,30 +65,20 @@ func (c *Client) instrumentOperation(operationName string, fn func() error) erro
 
 func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error {
 	return c.instrumentOperation("store-playlist", func() error {
-		// Create base keys
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlist.Name)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 
-		// Use Redis pipeline for better performance
 		pipe := c.rdb.Pipeline()
 
-		// Store playlist metadata in a hash
 		pipe.HSet(playlistKey, "name", playlist.Name)
 		pipe.HSet(playlistKey, "source", playlist.Source)
 		pipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
 
-		// Set expiry time (30 days) for the playlist
-		pipe.Expire(playlistKey, 30*24*time.Hour)
-
-		// Remove old channels list if it exists
 		pipe.Del(channelsKey)
 
-		// Store each channel separately
 		for i, channel := range playlist.Channels {
-			// Create channel hash key
 			channelKey := fmt.Sprintf("%s:%d", channelsKey, i)
 
-			// Store channel data as hash fields
 			pipe.HSet(channelKey, "id", channel.ID)
 			pipe.HSet(channelKey, "name", channel.Name)
 			pipe.HSet(channelKey, "url", channel.Url)
@@ -97,21 +87,12 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			pipe.HSet(channelKey, "favorite", channel.Favorite)
 			pipe.HSet(channelKey, "enabled", channel.Enabled)
 
-			// Set expiry time for channel data
-			pipe.Expire(channelKey, 30*24*time.Hour)
-
-			// Add channel index to a set for tracking
 			pipe.SAdd(channelsKey, i)
 		}
 
-		// Set expiry for channels set
-		pipe.Expire(channelsKey, 30*24*time.Hour)
-
-		// Store playlist name in a set for easy listing
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
 		pipe.SAdd(setKey, playlist.Name)
 
-		// Execute all commands in the pipeline
 		_, err := pipe.Exec()
 		if err != nil {
 			return fmt.Errorf("failed to store playlist in Redis: %w", err)
@@ -127,11 +108,9 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 	var playlist *models.Playlist
 
 	err := c.instrumentOperation("get-playlist", func() error {
-		// Create key for playlist and channels
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 
-		// Check if playlist exists
 		exists, err := c.rdb.Exists(playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
