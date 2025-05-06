@@ -47,7 +47,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 
 	var channelID string
 	if opt, ok := optionMap["channel"]; ok {
-		channelID = opt.StringValue()
+		channelID = fmt.Sprintf("%d", opt.IntValue())
 	} else {
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

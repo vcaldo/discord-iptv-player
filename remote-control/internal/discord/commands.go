@@ -15,10 +15,12 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			Description: "Play a TV channel",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
-					Type:        discordgo.ApplicationCommandOptionString,
+					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "channel",
 					Description: "The TV channel to play",
 					Required:    true,
+					MinValue:    &[]float64{0}[0],
+					MaxValue:    float64(100),
 				},
 			},
 		},
@@ -34,6 +36,8 @@ func (b *Bot) registerCommands(ctx context.Context, nrApp *newrelic.Application)
 	defer txn.End()
 
 	ctx = newrelic.NewContext(ctx, txn)
+
+	// deregisterCommands(ctx, b.session)
 
 	log.Println("registering commands...")
 
