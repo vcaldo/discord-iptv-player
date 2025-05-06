@@ -16,7 +16,9 @@ type Config struct {
 	RedisAddress          string `envconfig:"REDIS_ADDRESS" default:"localhost:6379"`
 	RedisPassword         string `envconfig:"REDIS_PASSWORD" default:""`
 	RedisDB               int    `envconfig:"REDIS_DB" default:"0"`
-	PlaylistURL           string `envconfig:"PLAYLIST_URL" default:""`
+	PlaylistURL           string `envconfig:"PLAYLIST_URL" required:"true"`
+	PlaylistName          string `envconfig:"PLAYLIST_NAME" default:"iptv"`
+	PlaylistMaxAgeDays    int    `envconfig:"PLAYLIST_MAX_AGE_DAYS" default:"30"`
 }
 
 func LoadConfig() (*Config, error) {
