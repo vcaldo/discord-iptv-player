@@ -50,7 +50,7 @@ func main() {
 
 	log.Printf("playlist length: %d", len(playlist.Channels))
 
-	playlist2, err := m3u.GetPlaylist(ctx, "http://mag.spainott.net:80/get.php?username=DTVYLPBOWA&password=AZ5ZMJHAIA&output=ts&type=m3u_plus", "iptv2", nrApp)
+	playlist2, err := m3u.GetPlaylist(ctx, config.PlaylistURL, "iptv2", nrApp)
 	if err != nil {
 		log.Fatalf("error loading playlist2: %v", err)
 	}

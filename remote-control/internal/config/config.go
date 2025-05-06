@@ -14,6 +14,7 @@ type Config struct {
 	RedisAddress       string `envconfig:"REDIS_ADDRESS" default:"localhost:6379"`
 	RedisPassword      string `envconfig:"REDIS_PASSWORD" default:""`
 	RedisDB            int    `envconfig:"REDIS_DB" default:"0"`
+	PlaylistURL        string `envconfig:"PLAYLIST_URL" default:""`
 }
 
 func LoadConfig() (*Config, error) {
