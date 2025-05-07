@@ -8,13 +8,17 @@ import (
 )
 
 type Config struct {
-	DiscordToken       string `envconfig:"DISCORD_BOT_TOKEN" required:"true"`
-	NewRelicAppName    string `envconfig:"NEW_RELIC_APP_NAME" default:"Discord IPTV Player"`
-	NewRelicLicenseKey string `envconfig:"NEW_RELIC_LICENSE_KEY" default:""`
-	RedisAddress       string `envconfig:"REDIS_ADDRESS" default:"localhost:6379"`
-	RedisPassword      string `envconfig:"REDIS_PASSWORD" default:""`
-	RedisDB            int    `envconfig:"REDIS_DB" default:"0"`
-	PlaylistURL        string `envconfig:"PLAYLIST_URL" default:""`
+	DiscordToken          string `envconfig:"DISCORD_BOT_TOKEN" required:"true"`
+	DiscordGuildID        string `envconfig:"DISCORD_GUILD_ID" required:"true"`
+	DiscordVideoChannelID string `envconfig:"DISCORD_VIDEO_CHANNEL_ID" required:"true"`
+	NewRelicAppName       string `envconfig:"NEW_RELIC_APP_NAME" default:"Discord IPTV Player"`
+	NewRelicLicenseKey    string `envconfig:"NEW_RELIC_LICENSE_KEY" default:""`
+	RedisAddress          string `envconfig:"REDIS_ADDRESS" default:"localhost:6379"`
+	RedisPassword         string `envconfig:"REDIS_PASSWORD" default:""`
+	RedisDB               int    `envconfig:"REDIS_DB" default:"0"`
+	PlaylistURL           string `envconfig:"PLAYLIST_URL" required:"true"`
+	PlaylistName          string `envconfig:"PLAYLIST_NAME" default:"iptv"`
+	PlaylistMaxAgeDays    int    `envconfig:"PLAYLIST_MAX_AGE_DAYS" default:"10"`
 }
 
 func LoadConfig() (*Config, error) {

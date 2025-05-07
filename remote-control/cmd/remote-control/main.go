@@ -35,6 +35,8 @@ func main() {
 		log.Println("continuing without instrumentation")
 	} else {
 		log.Println("new relic initialized successfully")
+		// Allow some time for New Relic to initialize
+		time.Sleep(1 * time.Second)
 	}
 
 	redisClient, err := redis.NewClient(ctx, config, nrApp)
@@ -43,19 +45,9 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	playlist, err := m3u.GetPlaylistFromFile(ctx, "C:\\Users\\vini\\lab\\discord-iptv-player\\remote-control\\playlist.m3u", nrApp)
-	if err != nil {
-		log.Fatalf("error loading playlist: %v", err)
+	if err := m3u.InitializePlaylist(ctx, config, redisClient, nrApp); err != nil {
+		log.Fatalf("error initializing playlist: %v", err)
 	}
-
-	log.Printf("playlist length: %d", len(playlist.Channels))
-
-	playlist2, err := m3u.GetPlaylist(ctx, config.PlaylistURL, "iptv2", nrApp)
-	if err != nil {
-		log.Fatalf("error loading playlist2: %v", err)
-	}
-
-	log.Printf("playlist2 length: %d", len(playlist2.Channels))
 
 	discordBot, err := discord.NewBot(config, redisClient, nrApp)
 	if err != nil {
@@ -63,7 +55,7 @@ func main() {
 	}
 
 	go func() {
-		if err := discordBot.Start(ctx, nrApp); err != nil {
+		if err := discordBot.Start(ctx, config, nrApp); err != nil {
 			log.Printf("error running Discord bot: %v", err)
 		}
 	}()

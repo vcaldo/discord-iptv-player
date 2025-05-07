@@ -14,26 +14,10 @@ import (
 	"time"
 
 	"github.com/newrelic/go-agent/v3/newrelic"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
-type TvChannel struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Url      string `json:"url"`
-	Logo     string `json:"logo"`
-	Category string `json:"category"`
-	Favorite bool   `json:"favorite"`
-	Enabled  bool   `json:"enabled"`
-}
-
-type Playlist struct {
-	Name     string      `json:"name"`
-	Channels []TvChannel `json:"channels"`
-	Source   string      `json:"source"`
-	Updated  time.Time   `json:"updated"`
-}
-
-func GetPlaylist(ctx context.Context, url string, name string, nrApp *newrelic.Application) (*Playlist, error) {
+func GetPlaylist(ctx context.Context, url string, name string, nrApp *newrelic.Application) (*models.Playlist, error) {
 	txn := nrApp.StartTransaction("m3u:get-playlist")
 	defer txn.End()
 
@@ -55,7 +39,7 @@ func GetPlaylist(ctx context.Context, url string, name string, nrApp *newrelic.A
 	return playlist, nil
 }
 
-func GetPlaylistFromFile(ctx context.Context, filePath string, nrApp *newrelic.Application) (*Playlist, error) {
+func GetPlaylistFromFile(ctx context.Context, filePath string, nrApp *newrelic.Application) (*models.Playlist, error) {
 	txn := nrApp.StartTransaction("m3u:get-playlist-from-file")
 	defer txn.End()
 
@@ -92,7 +76,7 @@ func downloadPlaylist(ctx context.Context, url string) (string, error) {
 	}
 
 	// Add headers to mimic a web browser to avoid 403 Forbidden errors
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	req.Header.Set("User-Agent", "discord-iptv-player/1.0")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
 	req.Header.Set("Cache-Control", "no-cache")
@@ -138,7 +122,7 @@ func readFile(ctx context.Context, filePath string) (string, error) {
 	return string(content), nil
 }
 
-func parsePlaylist(ctx context.Context, content string, name string) (*Playlist, error) {
+func parsePlaylist(ctx context.Context, content string, name string) (*models.Playlist, error) {
 	txn := newrelic.FromContext(ctx)
 	segment := txn.StartSegment("parse-playlist")
 	defer segment.End()
@@ -149,12 +133,12 @@ func parsePlaylist(ctx context.Context, content string, name string) (*Playlist,
 		return nil, err
 	}
 
-	playlist := &Playlist{
+	playlist := &models.Playlist{
 		Name:     name,
-		Channels: []TvChannel{},
+		Channels: []models.TvChannel{},
 	}
 
-	var currentChannel *TvChannel
+	var currentChannel *models.TvChannel
 	var channelID int64 = 1
 
 	scanner := bufio.NewScanner(strings.NewReader(content))
@@ -166,8 +150,8 @@ func parsePlaylist(ctx context.Context, content string, name string) (*Playlist,
 
 		if strings.HasPrefix(line, "#EXTINF:") {
 			// Parse channel info line
-			currentChannel = &TvChannel{
-				ID:       channelID,
+			currentChannel = &models.TvChannel{
+				ID:       fmt.Sprintf("%d", channelID),
 				Favorite: false,
 				Enabled:  true,
 			}
