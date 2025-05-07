@@ -176,9 +176,24 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	var matchingChannels []string
 	searchQueryLower := strings.ToLower(searchQuery)
 
+	// Find the maximum length of channel ID for proper alignment
+	prepareSegment := txn.StartSegment("max_id_length")
+	maxIDLength := 0
 	for _, channel := range playlist.Channels {
 		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
-			matchingChannels = append(matchingChannels, fmt.Sprintf("%s\t- %s",
+			if len(channel.ID) > maxIDLength {
+				maxIDLength = len(channel.ID)
+			}
+		}
+	}
+	prepareSegment.End()
+
+	// Format string with consistent padding based on the longest ID
+	formatString := "%-" + fmt.Sprintf("%d", maxIDLength) + "s  - %s"
+
+	for _, channel := range playlist.Channels {
+		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
+			matchingChannels = append(matchingChannels, fmt.Sprintf(formatString,
 				channel.ID, channel.Name))
 		}
 	}
