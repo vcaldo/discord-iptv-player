@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -97,6 +98,7 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		pipe.HSet(playlistKey, "name", playlist.Name)
 		pipe.HSet(playlistKey, "source", playlist.Source)
 		pipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
+		pipe.HSet(playlistKey, "length", len(playlist.Channels))
 
 		pipe.Del(channelsKey)
 
@@ -209,8 +211,21 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 			playlist.Channels = append(playlist.Channels, channel)
 		}
 
+		// Log playlist retrieval with length info (either from stored length or calculated)
+		var length int64
+		if lengthStr, ok := playlistData["length"]; ok && lengthStr != "" {
+			if parsedLength, err := strconv.ParseInt(lengthStr, 10, 64); err == nil {
+				length = parsedLength
+			} else {
+				length = int64(len(playlist.Channels))
+				log.Printf("warning: failed to parse playlist length from Redis: %v", err)
+			}
+		} else {
+			length = int64(len(playlist.Channels))
+		}
+
 		log.Printf("retrieved playlist '%s' for guild %s with %d channels",
-			playlist.Name, guildID, len(playlist.Channels))
+			playlist.Name, guildID, length)
 		return nil
 	})
 
