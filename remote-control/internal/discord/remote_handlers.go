@@ -147,33 +147,62 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
 			matchingChannels = append(matchingChannels, fmt.Sprintf("• **%s** (ID: %s) - Category: %s",
 				channel.Name, channel.ID, channel.Category))
-
-			// Limit results to avoid message size limits
-			if len(matchingChannels) >= 25 {
-				break
-			}
 		}
-	}
-
-	var responseContent string
-	if len(matchingChannels) > 0 {
-		responseContent = fmt.Sprintf("Found %d channels matching '%s':\n\n%s",
-			len(matchingChannels), searchQuery, strings.Join(matchingChannels, "\n"))
-
-		// Add note if results were limited
-		if len(matchingChannels) == 25 && len(playlist.Channels) > 25 {
-			responseContent += "\n\n*Results limited to 25 channels. Use a more specific search term to narrow results.*"
-		}
-	} else {
-		responseContent = fmt.Sprintf("No channels found matching '%s'", searchQuery)
 	}
 
 	txn.AddAttribute("search_query", searchQuery)
 	txn.AddAttribute("results_count", len(matchingChannels))
 
-	// Use followup message since we already acknowledged the interaction
-	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: responseContent,
-	})
+	if len(matchingChannels) == 0 {
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("No channels found matching '%s'", searchQuery),
+		})
+		return err
+	}
+
+	// Split results into batches to stay within Discord's 2000 character limit
+	header := fmt.Sprintf("Found %d channels matching '%s':\n\n", len(matchingChannels), searchQuery)
+
+	// Send results in batches of approximately 1700 characters (leaving room for headers)
+	const maxBatchSize = 1700
+	var currentBatch strings.Builder
+	currentBatch.WriteString(header)
+
+	for idx, channel := range matchingChannels {
+		// If adding this channel would exceed the batch size, send the current batch
+		if currentBatch.Len() > 0 && currentBatch.Len()+len(channel)+1 > maxBatchSize {
+			// Send the current batch
+			_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: currentBatch.String(),
+			})
+			if err != nil {
+				txn.NoticeError(err)
+				return err
+			}
+
+			// Start a new batch
+			currentBatch.Reset()
+
+			// If this isn't the first channel, add a continuation header
+			if idx > 0 {
+				currentBatch.WriteString(fmt.Sprintf("Results for '%s' (continued):\n\n", searchQuery))
+			}
+		}
+
+		// Add the channel to the current batch
+		currentBatch.WriteString(channel)
+		currentBatch.WriteString("\n")
+	}
+
+	// Send any remaining channels in the final batch
+	if currentBatch.Len() > 0 {
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: currentBatch.String(),
+		})
+		if err != nil {
+			txn.NoticeError(err)
+		}
+	}
+
 	return err
 }
