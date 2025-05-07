@@ -204,14 +204,14 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 
 	if len(matchingChannels) == 0 {
 		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("No channels found matching '%s'", searchQuery),
+			Content: fmt.Sprintf("🙅‍♀️  No channels found matching `%s`", searchQuery),
 		})
 		return err
 	}
 
 	// Split results into batches to stay within Discord's 2000 character limit
 	formatSegment := txn.StartSegment("format_results")
-	header := fmt.Sprintf("📺 Found %d channels matching `%s`:\n\n", len(matchingChannels), searchQuery)
+	header := fmt.Sprintf("🔎  Found **%d** channels matching `%s`:\n\n", len(matchingChannels), searchQuery)
 
 	// Send results in batches of approximately 1700 characters (leaving room for headers)
 	const maxBatchSize = 1700
