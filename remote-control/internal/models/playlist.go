@@ -5,10 +5,9 @@ import (
 )
 
 type RemoteControlCommand struct {
-	RedisChannel string        `json:"redis_channel"`
-	Command      string        `json:"command"`
-	TvChannel    *TvChannel    `json:"tv_channel"`
-	YoutubeVideo *YoutubeVideo `json:"youtube_video"`
+	RedisChannel string     `json:"redis_channel"`
+	Command      string     `json:"command"`
+	TvChannel    *TvChannel `json:"tv_channel"`
 }
 
 type Playlist struct {
