@@ -64,24 +64,6 @@ func InitializePlaylist(ctx context.Context, config *config.Config, redisClient 
 
 	txn.AddAttribute("playlist.channels_count", len(playlist.Channels))
 
-	// If we have an existing playlist and the number of channels is the same,
-	// the playlist might not have changed, so we can keep the old one to avoid
-	// unnecessary updates and data transfer
-	if existingPlaylist != nil && len(existingPlaylist.Channels) == len(playlist.Channels) {
-		log.Println("new playlist has the same number of channels as the existing one, keeping the existing playlist")
-		// Update the timestamp to reset the age check
-		existingPlaylist.Updated = time.Now()
-
-		storeSegment := txn.StartSegment("store-playlist")
-		err := redisClient.StorePlaylist(existingPlaylist, config.DiscordGuildID)
-		storeSegment.End()
-
-		if err != nil {
-			txn.NoticeError(err)
-		}
-		return err
-	}
-
 	// Delete the old playlist if it exists
 	if existingPlaylist != nil {
 		deleteSegment := txn.StartSegment("delete-old-playlist")

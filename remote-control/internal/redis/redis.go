@@ -32,17 +32,16 @@ func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Applicat
 		Addr:         cfg.RedisAddress,
 		Password:     cfg.RedisPassword,
 		DB:           cfg.RedisDB,
-		DialTimeout:  10 * time.Second, // Increase connection timeout
-		ReadTimeout:  30 * time.Second, // Increase read timeout
-		WriteTimeout: 30 * time.Second, // Increase write timeout
-		PoolSize:     10,               // Connection pool size
-		PoolTimeout:  30 * time.Second, // Pool timeout
-		MaxRetries:   5,                // Maximum number of retries
-		MaxConnAge:   0,                // Maximum age of connections in the pool
-		IdleTimeout:  5 * time.Minute,  // How long connections can be idle
+		DialTimeout:  10 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		PoolSize:     10,
+		PoolTimeout:  30 * time.Second,
+		MaxRetries:   5,
+		MaxConnAge:   0,
+		IdleTimeout:  5 * time.Minute,
 	})
 
-	// Try to establish a connection with retries
 	var pong string
 	var err error
 	maxAttempts := 3
@@ -58,7 +57,7 @@ func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Applicat
 
 		log.Printf("Redis connection attempt %d/%d failed: %v. Retrying...", attempt, maxAttempts, err)
 		if attempt < maxAttempts {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second) // Exponential backoff
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 		}
 	}
 
@@ -102,7 +101,8 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		pipe.Del(channelsKey)
 
 		for i, channel := range playlist.Channels {
-			channelKey := fmt.Sprintf("%s:%d", channelsKey, i)
+			channelIndex := i + 1
+			channelKey := fmt.Sprintf("%s:%d", channelsKey, channelIndex)
 
 			pipe.HSet(channelKey, "id", channel.ID)
 			pipe.HSet(channelKey, "name", channel.Name)
@@ -112,7 +112,7 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			pipe.HSet(channelKey, "favorite", channel.Favorite)
 			pipe.HSet(channelKey, "enabled", channel.Enabled)
 
-			pipe.SAdd(channelsKey, i)
+			pipe.SAdd(channelsKey, channelIndex)
 		}
 
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
@@ -144,7 +144,6 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
 		}
 
-		// Get playlist metadata from hash
 		playlistData, err := c.rdb.HGetAll(playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve playlist data: %w", err)
