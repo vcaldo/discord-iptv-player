@@ -112,6 +112,7 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
+	parseSegment := txn.StartSegment("parse_options")
 	options := i.ApplicationCommandData().Options
 	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
 	for _, opt := range options {
@@ -122,24 +123,30 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	if opt, ok := optionMap["name"]; ok {
 		searchQuery = opt.StringValue()
 	} else {
+		parseSegment.End()
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: "Please specify a name to search for",
 		})
 		return err
 	}
+	parseSegment.End()
 
 	// Get the playlist
+	getPlaylistSegment := txn.StartSegment("get_playlist")
 	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, config.PlaylistName)
 	if err != nil {
+		getPlaylistSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: fmt.Sprintf("Error retrieving playlist: %v", err),
 		})
 		return msgErr
 	}
+	getPlaylistSegment.End()
 
 	// Search for channels
+	searchSegment := txn.StartSegment("search_channels")
 	var matchingChannels []string
 	searchQueryLower := strings.ToLower(searchQuery)
 
@@ -149,6 +156,7 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 				channel.Name, channel.ID, channel.Category))
 		}
 	}
+	searchSegment.End()
 
 	txn.AddAttribute("search_query", searchQuery)
 	txn.AddAttribute("results_count", len(matchingChannels))
@@ -161,13 +169,16 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	}
 
 	// Split results into batches to stay within Discord's 2000 character limit
+	formatSegment := txn.StartSegment("format_results")
 	header := fmt.Sprintf("Found %d channels matching '%s':\n\n", len(matchingChannels), searchQuery)
 
 	// Send results in batches of approximately 1700 characters (leaving room for headers)
 	const maxBatchSize = 1700
 	var currentBatch strings.Builder
 	currentBatch.WriteString(header)
+	formatSegment.End()
 
+	sendSegment := txn.StartSegment("send_results")
 	for idx, channel := range matchingChannels {
 		// If adding this channel would exceed the batch size, send the current batch
 		if currentBatch.Len() > 0 && currentBatch.Len()+len(channel)+1 > maxBatchSize {
@@ -177,6 +188,7 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 			})
 			if err != nil {
 				txn.NoticeError(err)
+				sendSegment.End()
 				return err
 			}
 
@@ -203,6 +215,7 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 			txn.NoticeError(err)
 		}
 	}
+	sendSegment.End()
 
 	return err
 }

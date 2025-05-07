@@ -133,7 +133,6 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 
 func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, error) {
 	var playlist *models.Playlist
-
 	err := c.instrumentOperation("get-playlist", func() error {
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
@@ -151,7 +150,6 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 			return fmt.Errorf("failed to retrieve playlist data: %w", err)
 		}
 
-		// Initialize playlist
 		playlist = &models.Playlist{
 			Name:     playlistData["name"],
 			Source:   playlistData["source"],
