@@ -353,7 +353,7 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 func (c *Client) RemoteControlCommand(guildID string, command *models.RemoteControlCommand) error {
 	return c.instrumentOperation("remote-control-command", func() error {
 		// Get the channel name from the command or use default from config
-		channelName := command.RedisChannel
+		channelName := command.RedisPubSubChannel
 		if channelName == "" {
 			channelName = c.config.RedisPubSubChannel
 		}
