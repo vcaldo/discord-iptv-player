@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
 func (b *Bot) commands() []*discordgo.ApplicationCommand {
@@ -25,7 +26,7 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 
 	return []*discordgo.ApplicationCommand{
 		{
-			Name:        "tv",
+			Name:        models.TvCommand,
 			Description: "Play a TV channel",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
@@ -39,11 +40,11 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			},
 		},
 		{
-			Name:        "stop",
+			Name:        models.StopCommand,
 			Description: "Stop currently playing TV channel",
 		},
 		{
-			Name:        "search",
+			Name:        models.SearchCommand,
 			Description: "Search for TV channels by name",
 			Options: []*discordgo.ApplicationCommandOption{
 				{

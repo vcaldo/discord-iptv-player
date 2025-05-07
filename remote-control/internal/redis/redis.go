@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -347,6 +348,35 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 	})
 
 	return channel, err
+}
+
+func (c *Client) RemoteControlCommand(guildID string, command *models.RemoteControlCommand) error {
+	return c.instrumentOperation("remote-control-command", func() error {
+		// Get the channel name from the command or use default from config
+		channelName := command.RedisPubSubChannel
+		if channelName == "" {
+			channelName = c.config.RedisPubSubChannel
+		}
+
+		// Create a qualified channel name with guild ID
+		qualifiedChannel := fmt.Sprintf("%s:%s", channelName, guildID)
+
+		// Marshal the command to JSON
+		jsonData, err := json.Marshal(command)
+		if err != nil {
+			return fmt.Errorf("failed to marshal remote control command: %w", err)
+		}
+
+		// Publish the command to the Redis channel
+		err = c.rdb.Publish(qualifiedChannel, jsonData).Err()
+		if err != nil {
+			return fmt.Errorf("failed to publish remote control command: %w", err)
+		}
+
+		log.Printf("published remote control command '%s' to channel '%s' for guild %s",
+			command.Command, qualifiedChannel, guildID)
+		return nil
+	})
 }
 
 func (c *Client) Close() error {

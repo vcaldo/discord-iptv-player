@@ -4,6 +4,19 @@ import (
 	"time"
 )
 
+type RemoteControlCommand struct {
+	RedisPubSubChannel string     `json:"redis_channel"`
+	Command            string     `json:"command"`
+	TvChannel          *TvChannel `json:"tv_channel"`
+}
+
+type Playlist struct {
+	Name     string      `json:"name"`
+	Channels []TvChannel `json:"channels"`
+	Source   string      `json:"source"`
+	Updated  time.Time   `json:"updated"`
+}
+
 type TvChannel struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -14,9 +27,12 @@ type TvChannel struct {
 	Enabled  bool   `json:"enabled"`
 }
 
-type Playlist struct {
-	Name     string      `json:"name"`
-	Channels []TvChannel `json:"channels"`
-	Source   string      `json:"source"`
-	Updated  time.Time   `json:"updated"`
+type YoutubeVideo struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Thumbnail   string `json:"thumbnail"`
+	Duration    string `json:"duration"`
+	Url         string `json:"url"`
+	Channel     string `json:"channel"`
 }
