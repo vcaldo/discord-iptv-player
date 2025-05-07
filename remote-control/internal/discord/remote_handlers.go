@@ -8,6 +8,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
 func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
@@ -25,11 +26,11 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 	}
 
 	switch i.ApplicationCommandData().Name {
-	case "tv":
+	case models.TvCommand:
 		return b.handleTvCommand(ctx, s, i, config, nrApp)
-	case "stop":
-		return b.handleStopCommand(ctx, s, i, nrApp)
-	case "search":
+	case models.StopCommand:
+		return b.handleStopCommand(ctx, s, i, config, nrApp)
+	case models.SearchCommand:
 		return b.handleSearchCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
@@ -78,6 +79,20 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("channel_id", channelID)
 	txn.AddAttribute("channel_name", channel.Name)
 
+	remoteControlCommand := &models.RemoteControlCommand{
+		Command:   models.TvCommand,
+		TvChannel: channel,
+	}
+
+	err = b.redis.RemoteControlCommand(config.DiscordGuildID, remoteControlCommand)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error starting playback: %v", err),
+		})
+		return msgErr
+	}
+
 	// Use followup message since we already acknowledged the interaction
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: fmt.Sprintf("Starting to play channel: %s", channel.Name),
@@ -85,7 +100,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	return err
 }
 
-func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, nrApp *newrelic.Application) error {
+func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-stop-command")
 	defer txn.End()
 
@@ -94,10 +109,21 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
-	// TODO: Implement actual TV player integration to stop playback
+	remoteControlCommand := &models.RemoteControlCommand{
+		Command: models.StopCommand,
+	}
+
+	err := b.redis.RemoteControlCommand(config.DiscordGuildID, remoteControlCommand)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error stopping playback: %v", err),
+		})
+		return msgErr
+	}
 
 	// Use followup message since we already acknowledged the interaction
-	_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: "Stopped playing TV channel",
 	})
 	return err
