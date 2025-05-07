@@ -178,8 +178,8 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 
 	for _, channel := range playlist.Channels {
 		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
-			matchingChannels = append(matchingChannels, fmt.Sprintf("• **%s** (ID: %s) - Category: %s",
-				channel.Name, channel.ID, channel.Category))
+			matchingChannels = append(matchingChannels, fmt.Sprintf("%s\t- %s",
+				channel.ID, channel.Name))
 		}
 	}
 	searchSegment.End()
@@ -196,18 +196,22 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 
 	// Split results into batches to stay within Discord's 2000 character limit
 	formatSegment := txn.StartSegment("format_results")
-	header := fmt.Sprintf("Found %d channels matching '%s':\n\n", len(matchingChannels), searchQuery)
+	header := fmt.Sprintf("📺 Found %d channels matching `%s`:\n\n", len(matchingChannels), searchQuery)
 
 	// Send results in batches of approximately 1700 characters (leaving room for headers)
 	const maxBatchSize = 1700
 	var currentBatch strings.Builder
 	currentBatch.WriteString(header)
+	currentBatch.WriteString("```\n") // Start code block
 	formatSegment.End()
 
 	sendSegment := txn.StartSegment("send_results")
 	for idx, channel := range matchingChannels {
 		// If adding this channel would exceed the batch size, send the current batch
-		if currentBatch.Len() > 0 && currentBatch.Len()+len(channel)+1 > maxBatchSize {
+		if currentBatch.Len() > 0 && currentBatch.Len()+len(channel)+10 > maxBatchSize { // Add 10 for the code block syntax
+			// Close the code block
+			currentBatch.WriteString("```")
+
 			// Send the current batch
 			_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 				Content: currentBatch.String(),
@@ -223,8 +227,11 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 
 			// If this isn't the first channel, add a continuation header
 			if idx > 0 {
-				currentBatch.WriteString(fmt.Sprintf("Results for '%s' (continued):\n\n", searchQuery))
+				currentBatch.WriteString(fmt.Sprintf("Results for `%s` (continued):\n\n", searchQuery))
 			}
+
+			// Start new code block
+			currentBatch.WriteString("```\n")
 		}
 
 		// Add the channel to the current batch
@@ -234,6 +241,9 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 
 	// Send any remaining channels in the final batch
 	if currentBatch.Len() > 0 {
+		// Close the code block
+		currentBatch.WriteString("```")
+
 		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: currentBatch.String(),
 		})
