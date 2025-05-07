@@ -20,13 +20,25 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 					Description: "The TV channel to play",
 					Required:    true,
 					MinValue:    &[]float64{0}[0],
-					MaxValue:    float64(100),
+					MaxValue:    float64(2000),
 				},
 			},
 		},
 		{
 			Name:        "stop",
 			Description: "Stop currently playing TV channel",
+		},
+		{
+			Name:        "search",
+			Description: "Search for TV channels by name",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "name",
+					Description: "The channel name to search for",
+					Required:    true,
+				},
+			},
 		},
 	}
 }

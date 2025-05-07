@@ -27,19 +27,45 @@ func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Applicat
 	txn.AddAttribute("redis_address", cfg.RedisAddress)
 	txn.AddAttribute("redis_db", cfg.RedisDB)
 
+	// Set up Redis client with timeout options
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddress,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
+		Addr:         cfg.RedisAddress,
+		Password:     cfg.RedisPassword,
+		DB:           cfg.RedisDB,
+		DialTimeout:  10 * time.Second, // Increase connection timeout
+		ReadTimeout:  30 * time.Second, // Increase read timeout
+		WriteTimeout: 30 * time.Second, // Increase write timeout
+		PoolSize:     10,               // Connection pool size
+		PoolTimeout:  30 * time.Second, // Pool timeout
+		MaxRetries:   5,                // Maximum number of retries
+		MaxConnAge:   0,                // Maximum age of connections in the pool
+		IdleTimeout:  5 * time.Minute,  // How long connections can be idle
 	})
 
-	segment := txn.StartSegment("redis:ping")
-	pong, err := rdb.Ping().Result()
+	// Try to establish a connection with retries
+	var pong string
+	var err error
+	maxAttempts := 3
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		segment := txn.StartSegment(fmt.Sprintf("redis:ping-attempt-%d", attempt))
+		pong, err = rdb.Ping().Result()
+		segment.End()
+
+		if err == nil {
+			break
+		}
+
+		log.Printf("Redis connection attempt %d/%d failed: %v. Retrying...", attempt, maxAttempts, err)
+		if attempt < maxAttempts {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second) // Exponential backoff
+		}
+	}
+
 	if err != nil {
 		txn.NoticeError(err)
-		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+		return nil, fmt.Errorf("failed to connect to Redis after %d attempts: %w", maxAttempts, err)
 	}
-	segment.End()
 
 	log.Printf("successfully connected to Redis: %s", pong)
 
