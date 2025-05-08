@@ -64,7 +64,7 @@ func (b *Bot) registerCommands(ctx context.Context, nrApp *newrelic.Application)
 
 	ctx = newrelic.NewContext(ctx, txn)
 
-	// deregisterCommands(ctx, b.session)
+	deregisterCommands(ctx, b.session)
 
 	log.Println("registering commands...")
 
