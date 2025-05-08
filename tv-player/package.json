@@ -1,5 +1,5 @@
 {
-  "name": "discord-iptv-player",
+  "name": "discord-iptv-player-tv-service",
   "version": "0.0.1",
   "description": "A self bot to stream movies/videos to Discord.",
   "main": "dist/index.js",
