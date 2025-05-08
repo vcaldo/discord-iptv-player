@@ -96,93 +96,75 @@ logInfo("Shutdown handlers configured");
 async function handlePlay(title: string, url: string) {
     // Create New Relic transaction for play operation
     const playTransaction = newrelic.startWebTransaction('handlePlay', async function() {
-        let attempts = 0;
+        try {
+            // Add custom attributes to the transaction
+            newrelic.addCustomAttribute('videoTitle', title);
+            newrelic.addCustomAttribute('videoUrl', url);
 
-        while (attempts < MAX_RETRY_ATTEMPTS) {
-            try {
-                // Add custom attributes to the transaction
-                newrelic.addCustomAttribute('videoTitle', title);
-                newrelic.addCustomAttribute('videoUrl', url);
-                newrelic.addCustomAttribute('attemptNumber', attempts + 1);
+            logInfo(`Attempting to play "${title}"`, { url });
 
-                logInfo(`Attempting to play "${title}" - attempt ${attempts + 1}/${MAX_RETRY_ATTEMPTS}`, { url });
-
-                // Check if Discord client is ready
-                if (!discordService.isReady()) {
-                    logWarn('Discord client not ready. Waiting before attempting to play...');
-                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
-                    attempts++;
-                    continue;
-                }
-
-                // Step 1: Stop any existing stream first
-                logInfo('Stopping any existing stream...');
-                await handleStop();
-                // Small delay to ensure cleanup is complete
-                await new Promise(resolve => setTimeout(resolve, 500));
-
-                // Step 2: Get video URL (with fallback to original URL)
-                let videoUrl: string;
-                try {
-                    // Create New Relic segment for URL resolution
-                    await newrelic.startSegment('resolve-video-url', true, async () => {
-                        logDebug('Resolving video URL...', { originalUrl: url });
-                        videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
-                        logInfo(`Resolved video URL successfully`);
-                        logDebug(`Video URL details`, { url: videoUrl });
-                    });
-                } catch (error) {
-                    newrelic.noticeError(error);
-                    logError('Failed to resolve video URL, using original as fallback:', error);
-                    // Fallback to original URL on error
-                    videoUrl = url;
-                    logInfo(`Using original URL as fallback: ${videoUrl}`);
-                }
-
-                // Step 3: Join voice channel
-                logInfo('Joining voice channel...');
-                // Create New Relic segment for voice channel joining
-                await newrelic.startSegment('join-voice-channel', true, async () => {
-                    const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-                    logInfo('Successfully joined voice channel');
-
-                    // Step 4: Set status
-                    logInfo(`Setting watching status to "${title}"`);
-                    discordService.setWatchingStatus(title);
-
-                    // Step 5: Start streaming
-                    logInfo('Starting video stream...');
-                    // Create New Relic segment for streaming
-                    await newrelic.startSegment('start-streaming', true, async () => {
-                        await discordService.startStreaming(videoUrl, streamUdpConn);
-                    });
-                    logInfo(`Successfully playing "${title}"`);
-                });
-
-                // If we reach here, everything succeeded
+            // Check if Discord client is ready
+            if (!discordService.isReady()) {
+                logWarn('Discord client not ready. Cannot play at the moment.');
+                // Optionally, you might want to throw an error or return early
                 return;
+            }
+
+            // Step 1: Stop any existing stream first
+            logInfo('Stopping any existing stream...');
+            await handleStop();
+            // Small delay to ensure cleanup is complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Step 2: Get video URL (with fallback to original URL)
+            let videoUrl: string;
+            try {
+                // Create New Relic segment for URL resolution
+                await newrelic.startSegment('resolve-video-url', true, async () => {
+                    logDebug('Resolving video URL...', { originalUrl: url });
+                    videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
+                    logInfo(`Resolved video URL successfully`);
+                    logDebug(`Video URL details`, { url: videoUrl });
+                });
             } catch (error) {
-                // Report errors to New Relic
                 newrelic.noticeError(error);
-                attempts++;
-                logError(`Error during play operation (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
+                logError('Failed to resolve video URL, using original as fallback:', error);
+                // Fallback to original URL on error
+                videoUrl = url;
+                logInfo(`Using original URL as fallback: ${videoUrl}`);
+            }
 
-                if (attempts >= MAX_RETRY_ATTEMPTS) {
-                    logError(`Failed to play "${title}" after ${MAX_RETRY_ATTEMPTS} attempts`);
-                    // Clean up on failure
-                    try {
-                        await handleStop();
-                    } catch (cleanupError) {
-                        newrelic.noticeError(cleanupError);
-                        logError('Error during cleanup after play failure:', cleanupError);
-                    }
-                    break;
-                }
+            // Step 3: Join voice channel
+            logInfo('Joining voice channel...');
+            // Create New Relic segment for voice channel joining
+            await newrelic.startSegment('join-voice-channel', true, async () => {
+                const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                logInfo('Successfully joined voice channel');
 
-                // Exponential backoff before retry
-                const delayMs = RETRY_DELAY_MS * Math.pow(1.5, attempts - 1);
-                logInfo(`Retrying play operation in ${delayMs}ms...`);
-                await new Promise(resolve => setTimeout(resolve, delayMs));
+                // Step 4: Set status
+                logInfo(`Setting watching status to "${title}"`);
+                discordService.setWatchingStatus(title);
+
+                // Step 5: Start streaming
+                logInfo('Starting video stream...');
+                // Create New Relic segment for streaming
+                await newrelic.startSegment('start-streaming', true, async () => {
+                    await discordService.startStreaming(videoUrl, streamUdpConn);
+                });
+                logInfo(`Successfully playing "${title}"`);
+            });
+
+        } catch (error) {
+            // Report errors to New Relic
+            newrelic.noticeError(error);
+            logError(`Error during play operation for "${title}":`, error);
+
+            // Clean up on failure
+            try {
+                await handleStop();
+            } catch (cleanupError) {
+                newrelic.noticeError(cleanupError);
+                logError('Error during cleanup after play failure:', cleanupError);
             }
         }
     });
