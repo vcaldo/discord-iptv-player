@@ -36,16 +36,20 @@ export class ShutdownHandler {
             logInfo('Stopping playback and cleaning up resources...');
 
             // Disconnect from voice channel if connected
-            this.services.discord.leaveVoiceChannel();
+            await this.services.discord.leaveVoiceChannel();
             logInfo('Disconnected from Discord voice channel');
 
-            // Kill any running ffmpeg processes
-            await this.services.processManager.killFfmpegProcesses();
-            logInfo('Killed running ffmpeg processes');
-
             // Set the status back to idle
-            this.services.discord.setIdleStatus();
+            await this.services.discord.setIdleStatus();
             logInfo('Discord status set to idle');
+
+            // Disconnect Discord bot
+            await this.services.discord.shutdown(); // Corrected to use shutdown method
+            logInfo('Discord bot disconnected and offline');
+
+            // Kill any running ffmpeg processes
+            this.services.processManager.killFfmpegProcesses();
+            logInfo('Killed running ffmpeg processes');
 
             // Disconnect Redis
             this.services.redis.disconnect();
