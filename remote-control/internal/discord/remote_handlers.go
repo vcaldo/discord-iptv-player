@@ -80,11 +80,12 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("channel_name", channel.Name)
 
 	remoteControlCommand := &models.RemoteControlCommand{
-		Command:   models.TvCommand,
-		TvChannel: channel,
+		Command: models.PlayCommand,
+		Title:   channel.Name,
+		Url:     channel.Url,
 	}
 
-	err = b.redis.RemoteControlCommand(config.DiscordGuildID, remoteControlCommand)
+	err = b.redis.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -113,7 +114,7 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 		Command: models.StopCommand,
 	}
 
-	err := b.redis.RemoteControlCommand(config.DiscordGuildID, remoteControlCommand)
+	err := b.redis.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{

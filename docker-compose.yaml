@@ -6,6 +6,26 @@ services:
     restart: unless-stopped
     env_file:
       - remote-control/.env
+    depends_on:
+      - redis
+
+  tv-player:
+    build:
+      context: ./tv-player
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 5s
+    stop_signal: SIGTERM
+    init: true
+    env_file:
+      - tv-player/.env
+    depends_on:
+      - redis
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7.4

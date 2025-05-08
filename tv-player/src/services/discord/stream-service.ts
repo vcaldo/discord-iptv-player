@@ -1,0 +1,127 @@
+import { Client } from "discord.js-selfbot-v13";
+import { Streamer, StreamOptions, MediaUdp, streamLivestreamVideo } from "@dank074/discord-video-stream";
+import { StreamProvider } from "./interfaces.js";
+import { Logger } from "../../utils/logger.js";
+import { ProcessManager } from "../../utils/process-manager.js";
+import config from "../../config.js";
+import newrelic from 'newrelic';
+
+/**
+ * Handles Discord streaming functionality
+ */
+export class StreamService implements StreamProvider {
+    private streamer: Streamer;
+    private logger: Logger;
+    private processManager: ProcessManager;
+
+    constructor(client: Client) {
+        this.streamer = new Streamer(client);
+        this.logger = new Logger('StreamService');
+        this.processManager = new ProcessManager();
+    }
+
+    /**
+     * Joins a voice channel and creates a media stream
+     */
+    public async joinVoiceChannel(streamOpts: StreamOptions): Promise<MediaUdp> {
+        return newrelic.startBackgroundTransaction('discord:join-voice-channel', async () => {
+            newrelic.addCustomAttribute('guild_id', config.guildId);
+            newrelic.addCustomAttribute('channel_id', config.videoChannelId);
+
+            try {
+                if (!this.streamer.client.isReady()) {
+                    this.logger.error('Discord client not ready.');
+                    throw new Error('Discord client not ready');
+                }
+
+                this.logger.log(`Joining voice channel in guild ${config.guildId}...`);
+
+                await newrelic.startSegment('join-voice', true, async () => {
+                    await this.streamer.joinVoice(config.guildId, config.videoChannelId, streamOpts);
+                });
+
+                this.logger.log('Creating stream...');
+
+                const stream = await newrelic.startSegment('create-stream', true, async () => {
+                    return await this.streamer.createStream(streamOpts);
+                });
+
+                this.logger.log('Successfully joined voice channel and created stream');
+                return stream;
+            } catch (error) {
+                newrelic.noticeError(error);
+                this.logger.error('Error joining voice channel:', error);
+                throw new Error(`Failed to join voice channel: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        });
+    }
+
+    /**
+     * Leaves the current voice channel
+     */
+    public leaveVoiceChannel(): void {
+        newrelic.startBackgroundTransaction('discord:leave-voice-channel', () => {
+            try {
+                this.logger.log('Leaving voice channel...');
+
+                newrelic.startSegment('leave-voice', true, () => {
+                    this.streamer.leaveVoice();
+                });
+
+                this.logger.log('Successfully left voice channel');
+            } catch (error) {
+                newrelic.noticeError(error);
+                this.logger.error('Error leaving voice channel:', error);
+
+                try {
+                    this.logger.log('Attempting force disconnect...');
+
+                    newrelic.startSegment('force-disconnect', true, () => {
+                        const guild = this.streamer.client.guilds.cache.get(config.guildId);
+                        const voiceState = guild?.voiceStates?.cache.get(this.streamer.client.user?.id || '');
+                        if (voiceState) voiceState.disconnect();
+                    });
+                } catch (innerError) {
+                    newrelic.noticeError(innerError);
+                    this.logger.error('Failed to force disconnect from voice channel:', innerError);
+                }
+            }
+        });
+    }
+
+    /**
+     * Starts streaming video content with retry mechanism
+     */
+    public async startStreaming(video: string, udpConn: MediaUdp): Promise<string> {
+        return newrelic.startBackgroundTransaction('discord:start-streaming', async () => {
+            this.logger.log("Starting to stream video:", video);
+            newrelic.addCustomAttribute('video_url', video);
+
+            try {
+                await newrelic.startSegment('setup-streaming', true, async () => {
+                    udpConn.mediaConnection.setSpeaking(true);
+                    udpConn.mediaConnection.setVideoStatus(true);
+                });
+
+                const res = await newrelic.startSegment('stream-video', true, async () => {
+                    return await streamLivestreamVideo(video, udpConn);
+                });
+
+                this.logger.log("Successfully finished streaming video:", res);
+                return res;
+            } catch (error) {
+                newrelic.noticeError(error);
+                this.logger.error('Error streaming video:', error);
+
+                try {
+                    udpConn.mediaConnection.setSpeaking(false);
+                    udpConn.mediaConnection.setVideoStatus(false);
+                } catch (cleanupError) {
+                    newrelic.noticeError(cleanupError);
+                    this.logger.error('Error cleaning up connection state after streaming error:', cleanupError);
+                }
+                throw new Error(`Failed to stream video: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        });
+    }
+}
