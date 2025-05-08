@@ -2,6 +2,7 @@ import { Client } from "discord.js-selfbot-v13";
 import { ConnectionManager } from "./interfaces.js";
 import { Logger } from "../../utils/logger.js";
 import config from "../../config.js";
+import newrelic from 'newrelic';
 
 // Maximum number of retry attempts for connection operations
 const MAX_RETRY_ATTEMPTS = 3;
@@ -63,65 +64,99 @@ export class DiscordConnectionManager implements ConnectionManager {
      * Attempts to connect to Discord
      */
     public async connect(): Promise<void> {
-        try {
-            this.logger.log("Attempting to connect to Discord...");
-            await this.client.login(config.token);
-        } catch (error) {
-            this.logger.error('Failed to login to Discord:', error);
-            this.handleLoginFailure(error);
-            throw error;
-        }
+        return newrelic.startBackgroundTransaction('discord:connect', async () => {
+            try {
+                this.logger.log("Attempting to connect to Discord...");
+
+                // Create a segment for the login operation
+                await newrelic.startSegment('login', true, async () => {
+                    await this.client.login(config.token);
+                });
+            } catch (error) {
+                // Report error to New Relic
+                newrelic.noticeError(error);
+
+                this.logger.error('Failed to login to Discord:', error);
+                this.handleLoginFailure(error);
+                throw error;
+            }
+        });
     }
 
     /**
      * Handles specific login failure scenarios
      */
     private handleLoginFailure(error: any): void {
-        // Handle specific error types with appropriate actions
-        if (error.message?.includes('TOKEN_INVALID')) {
-            this.logger.error('The provided token is invalid. Please check your configuration.');
-        } else if (error.message?.includes('RATE_LIMITED')) {
-            this.logger.error('Rate limited by Discord. Waiting before retry...');
-            // Implement exponential backoff for rate limits
-            const delayMs = RETRY_DELAY_MS * Math.pow(2, this.reconnectAttempts);
-            this.attemptReconnect(delayMs);
-        } else {
-            this.attemptReconnect();
-        }
+        // Create a transaction for handling login failures
+        newrelic.startBackgroundTransaction('discord:handle-login-failure', () => {
+            // Add error details as attributes
+            if (error.message) {
+                newrelic.addCustomAttribute('error_message', error.message);
+            }
+
+            // Handle specific error types with appropriate actions
+            if (error.message?.includes('TOKEN_INVALID')) {
+                this.logger.error('The provided token is invalid. Please check your configuration.');
+            } else if (error.message?.includes('RATE_LIMITED')) {
+                this.logger.error('Rate limited by Discord. Waiting before retry...');
+                // Implement exponential backoff for rate limits
+                const delayMs = RETRY_DELAY_MS * Math.pow(2, this.reconnectAttempts);
+                this.attemptReconnect(delayMs);
+            } else {
+                this.attemptReconnect();
+            }
+        });
     }
 
     /**
      * Attempts to reconnect to Discord with backoff
      */
     public attemptReconnect(delayMs = RETRY_DELAY_MS): void {
-        if (this.reconnectAttempts < MAX_RETRY_ATTEMPTS) {
-            this.reconnectAttempts++;
-            this.logger.log(`Attempting to reconnect (${this.reconnectAttempts}/${MAX_RETRY_ATTEMPTS}) in ${delayMs}ms...`);
+        newrelic.startBackgroundTransaction('discord:reconnect', () => {
+            newrelic.addCustomAttribute('attempt_number', this.reconnectAttempts + 1);
+            newrelic.addCustomAttribute('delay_ms', delayMs);
 
-            setTimeout(() => {
-                if (!this.isConnectedState) {
-                    this.client.login(config.token).catch(error => {
-                        this.logger.error('Reconnection attempt failed:', error);
-                        this.handleLoginFailure(error);
-                    });
-                }
-            }, delayMs);
-        } else {
-            this.logger.error('Max reconnection attempts reached. Please check your configuration and network.');
-        }
+            if (this.reconnectAttempts < MAX_RETRY_ATTEMPTS) {
+                this.reconnectAttempts++;
+                this.logger.log(`Attempting to reconnect (${this.reconnectAttempts}/${MAX_RETRY_ATTEMPTS}) in ${delayMs}ms...`);
+
+                setTimeout(() => {
+                    if (!this.isConnectedState) {
+                        newrelic.startSegment('login-retry', true, async () => {
+                            try {
+                                await this.client.login(config.token);
+                            } catch (error) {
+                                newrelic.noticeError(error);
+                                this.logger.error('Reconnection attempt failed:', error);
+                                this.handleLoginFailure(error);
+                            }
+                        });
+                    }
+                }, delayMs);
+            } else {
+                this.logger.error('Max reconnection attempts reached. Please check your configuration and network.');
+            }
+        });
     }
 
     /**
      * Disconnects from Discord
      */
     public disconnect(): void {
-        try {
-            this.logger.log("Disconnecting from Discord...");
-            this.client.destroy();
-            this.isConnectedState = false;
-        } catch (error) {
-            this.logger.error("Error disconnecting from Discord:", error);
-        }
+        newrelic.startBackgroundTransaction('discord:disconnect', () => {
+            try {
+                this.logger.log("Disconnecting from Discord...");
+
+                newrelic.startSegment('destroy-client', true, () => {
+                    this.client.destroy();
+                });
+
+                this.isConnectedState = false;
+            } catch (error) {
+                newrelic.noticeError(error);
+                this.logger.error("Error disconnecting from Discord:", error);
+            }
+        });
     }
 
     /**

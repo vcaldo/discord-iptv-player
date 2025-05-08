@@ -123,7 +123,7 @@ async function handlePlay(title: string, url: string) {
                 let videoUrl: string;
                 try {
                     // Create New Relic segment for URL resolution
-                    await newrelic.startSegment('resolveVideoUrl', true, async () => {
+                    await newrelic.startSegment('resolve-video-url', true, async () => {
                         logDebug('Resolving video URL...', { originalUrl: url });
                         videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
                         logInfo(`Resolved video URL successfully`);
@@ -140,7 +140,7 @@ async function handlePlay(title: string, url: string) {
                 // Step 3: Join voice channel
                 logInfo('Joining voice channel...');
                 // Create New Relic segment for voice channel joining
-                await newrelic.startSegment('joinVoiceChannel', true, async () => {
+                await newrelic.startSegment('join-voice-channel', true, async () => {
                     const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
                     logInfo('Successfully joined voice channel');
 
@@ -151,7 +151,7 @@ async function handlePlay(title: string, url: string) {
                     // Step 5: Start streaming
                     logInfo('Starting video stream...');
                     // Create New Relic segment for streaming
-                    await newrelic.startSegment('startStreaming', true, async () => {
+                    await newrelic.startSegment('start-streaming', true, async () => {
                         await discordService.startStreaming(videoUrl, streamUdpConn);
                     });
                     logInfo(`Successfully playing "${title}"`);
@@ -225,7 +225,7 @@ async function handleStop() {
  */
 async function handleMessage(message: RedisMessage) {
     // Create New Relic transaction for message handling
-    return newrelic.startBackgroundTransaction('handleMessage', 'Redis', async function() {
+    return newrelic.startBackgroundTransaction('handle-message', 'Redis', async function() {
         try {
             const { command, title, url } = message;
 

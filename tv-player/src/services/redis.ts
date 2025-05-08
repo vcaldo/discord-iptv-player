@@ -145,7 +145,7 @@ export class RedisService {
     }
 
     public async subscribe(pubSubChannel: string, messageHandler: (message: RedisMessage) => Promise<void>) {
-        return newrelic.startBackgroundTransaction('RedisService:subscribe', 'Redis', async () => {
+        return newrelic.startBackgroundTransaction('pub-sub:subscribe', 'Redis', async () => {
             // Add custom attributes to the New Relic transaction
             newrelic.addCustomAttribute('channel', pubSubChannel);
 
@@ -166,7 +166,7 @@ export class RedisService {
                     }
 
                     // Subscribe to the channel
-                    await newrelic.startSegment('subscribeToChannel', true, async () => {
+                    await newrelic.startSegment('subscribe-to-channel', true, async () => {
                         await this.subscribeToChannel(pubSubChannel);
                     });
                     subscribed = true;
@@ -182,7 +182,7 @@ export class RedisService {
                                     this.logger.debug(`Message content: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
 
                                     // Wrap message parsing in New Relic segment
-                                    const parsedMessage = await newrelic.startSegment('parseRedisMessage', true, async () => {
+                                    const parsedMessage = await newrelic.startSegment('parse-redis-message', true, async () => {
                                         return this.parseMessage(message);
                                     });
 
@@ -244,7 +244,7 @@ export class RedisService {
     }
 
     public async publish(channel: string, message: RedisMessage): Promise<boolean> {
-        return newrelic.startBackgroundTransaction('RedisService:publish', 'Redis', async () => {
+        return newrelic.startBackgroundTransaction('pub-sub:publish', 'Redis', async () => {
             // Add custom attributes to the New Relic transaction
             newrelic.addCustomAttribute('channel', channel);
             newrelic.addCustomAttribute('command', message.command);
@@ -268,7 +268,7 @@ export class RedisService {
                     });
 
                     // Instrument the actual publish call with New Relic
-                    const result = await newrelic.startSegment('redisPublish', true, async () => {
+                    const result = await newrelic.startSegment('redis-publish', true, async () => {
                         return await this.redis.publish(channel, stringifiedMessage);
                     });
 

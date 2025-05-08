@@ -5,6 +5,7 @@ import { StatusManager } from "./discord/status-manager.js";
 import { DiscordConnectionManager } from "./discord/connection-manager.js";
 import { StreamService } from "./discord/stream-service.js";
 import { Logger } from "../utils/logger.js";
+import newrelic from 'newrelic';
 
 /**
  * Main Discord service that coordinates connection, status management, and streaming
@@ -37,56 +38,71 @@ export class DiscordService {
      * Initialize the Discord client connection
      */
     private async initialize(): Promise<void> {
-        try {
-            this.logger.log('Initializing Discord service...');
-            await this.connectionManager.connect();
-        } catch (error) {
-            this.logger.error('Error initializing Discord service:', error);
-        }
+        return newrelic.startBackgroundTransaction('discord:initialize-service', async () => {
+            try {
+                this.logger.log('Initializing Discord service...');
+                await this.connectionManager.connect();
+            } catch (error) {
+                newrelic.noticeError(error);
+                this.logger.error('Error initializing Discord service:', error);
+            }
+        });
     }
 
     /**
      * Set idle/ready status
      */
     public setIdleStatus(): void {
-        this.statusManager.setIdleStatus();
+        newrelic.startSegment('set-idle-status', true, () => {
+            this.statusManager.setIdleStatus();
+        });
     }
 
     /**
      * Set watching status with the specified content name
      */
     public setWatchingStatus(name: string): void {
-        this.statusManager.setWatchingStatus(name);
+        newrelic.startSegment('set-watching-status', true, () => {
+            newrelic.addCustomAttribute('content_name', name);
+            this.statusManager.setWatchingStatus(name);
+        });
     }
 
     /**
      * Join a voice channel and prepare for streaming
      */
     public async joinVoiceChannel(streamOpts: StreamOptions): Promise<MediaUdp> {
-        if (!this.isReady()) {
-            this.logger.warn('Discord client not ready. Connecting before joining voice channel...');
-            await this.connectionManager.connect();
-        }
+        return newrelic.startSegment('join-voice-channel', true, async () => {
+            if (!this.isReady()) {
+                this.logger.warn('Discord client not ready. Connecting before joining voice channel...');
+                await this.connectionManager.connect();
+            }
 
-        return this.streamService.joinVoiceChannel(streamOpts);
+            return this.streamService.joinVoiceChannel(streamOpts);
+        });
     }
 
     /**
      * Leave the current voice channel
      */
     public leaveVoiceChannel(): void {
-        this.streamService.leaveVoiceChannel();
+        newrelic.startSegment('leave-voice-channel', true, () => {
+            this.streamService.leaveVoiceChannel();
+        });
     }
 
     /**
      * Start streaming the specified video
      */
     public async startStreaming(video: string, udpConn: MediaUdp): Promise<string> {
-        if (!this.isReady()) {
-            throw new Error('Discord client not ready. Cannot start streaming.');
-        }
+        return newrelic.startSegment('start-streaming', true, async () => {
+            if (!this.isReady()) {
+                throw new Error('Discord client not ready. Cannot start streaming.');
+            }
 
-        return this.streamService.startStreaming(video, udpConn);
+            newrelic.addCustomAttribute('video_url', video);
+            return this.streamService.startStreaming(video, udpConn);
+        });
     }
 
     /**
@@ -100,17 +116,25 @@ export class DiscordService {
      * Gracefully shut down the Discord client
      */
     public shutdown(): void {
-        this.logger.log('Shutting down Discord service...');
-        try {
-            this.leaveVoiceChannel();
-        } catch (error) {
-            this.logger.error('Error leaving voice channel during shutdown:', error);
-        }
+        return newrelic.startBackgroundTransaction('discord:shutdown-service', () => {
+            this.logger.log('Shutting down Discord service...');
+            try {
+                newrelic.startSegment('leave-voice-channel', true, () => {
+                    this.leaveVoiceChannel();
+                });
+            } catch (error) {
+                newrelic.noticeError(error);
+                this.logger.error('Error leaving voice channel during shutdown:', error);
+            }
 
-        try {
-            this.connectionManager.disconnect();
-        } catch (error) {
-            this.logger.error('Error disconnecting during shutdown:', error);
-        }
+            try {
+                newrelic.startSegment('disconnect-client', true, () => {
+                    this.connectionManager.disconnect();
+                });
+            } catch (error) {
+                newrelic.noticeError(error);
+                this.logger.error('Error disconnecting during shutdown:', error);
+            }
+        });
     }
 }
