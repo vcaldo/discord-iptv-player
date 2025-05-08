@@ -27,7 +27,7 @@ export class RedisService {
                 port: config.redisPort,
                 passwordProvided: !!config.redisPassword
             });
-            
+
             this.redis = new Redis({
                 host: config.redisHost,
                 port: config.redisPort,
@@ -173,7 +173,7 @@ export class RedisService {
                             try {
                                 this.logger.debug(`Received message on channel ${receivedChannel}`, { messageLength: message.length });
                                 this.logger.debug(`Message content: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
-                                
+
                                 const parsedMessage = this.parseMessage(message);
                                 if (parsedMessage) {
                                     await handler(parsedMessage);
@@ -209,13 +209,13 @@ export class RedisService {
 
             // Validate required fields
             if (!parsedMessage.command) {
-                this.logger.error('Received invalid Redis message: missing command field', { 
+                this.logger.error('Received invalid Redis message: missing command field', {
                     messagePreview: message.substring(0, 100)
                 });
                 return null;
             }
 
-            this.logger.debug('Successfully parsed Redis message', { 
+            this.logger.debug('Successfully parsed Redis message', {
                 command: parsedMessage.command,
                 title: parsedMessage.title || 'N/A'
             });
@@ -242,7 +242,7 @@ export class RedisService {
                 }
 
                 const stringifiedMessage = JSON.stringify(message);
-                this.logger.debug(`Publishing message to channel ${channel}`, { 
+                this.logger.debug(`Publishing message to channel ${channel}`, {
                     command: message.command,
                     messageLength: stringifiedMessage.length
                 });

@@ -188,7 +188,7 @@ async function handleStop() {
 async function handleMessage(message: RedisMessage) {
     try {
         const { command, title, url } = message;
-        logInfo(`Received command: ${command}`, { 
+        logInfo(`Received command: ${command}`, {
             channel: title || 'N/A',
             url: url || 'N/A'
         });
@@ -201,9 +201,9 @@ async function handleMessage(message: RedisMessage) {
         switch (command.toLowerCase()) {
             case "play":
                 if (!title || !url) {
-                    logError("Play command missing required parameters", { 
-                        title: title || 'missing', 
-                        url: url || 'missing' 
+                    logError("Play command missing required parameters", {
+                        title: title || 'missing',
+                        url: url || 'missing'
                     });
                     return;
                 }
