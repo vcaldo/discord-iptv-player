@@ -213,9 +213,9 @@ async function handleStop() {
 
             logInfo("Successfully stopped playing");
 
-            // Wait 500ms after stop command to ensure everything is settled
-            logDebug("Waiting 500ms after stop command...");
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Wait 100ms after stop command to ensure everything is settled
+            logDebug("Waiting 100ms after stop command...");
+            await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
             // Report error to New Relic
             newrelic.noticeError(error);
@@ -234,9 +234,9 @@ async function handleStop() {
                 discordService.setIdleStatus();
                 logInfo("Successfully stopped playing (second attempt)");
 
-                // Wait 500ms after stop command retry to ensure everything is settled
-                logDebug("Waiting 500ms after stop command retry...");
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // Wait 100ms after stop command retry to ensure everything is settled
+                logDebug("Waiting 100ms after stop command retry...");
+                await new Promise(resolve => setTimeout(resolve, 100));
             } catch (retryError) {
                 // Report retry error to New Relic
                 newrelic.noticeError(retryError);
