@@ -103,7 +103,13 @@ async function handlePlay(title: string, url: string) {
                 continue;
             }
 
-            // Step 1: Get video URL (with fallback to original URL)
+            // Step 1: Stop any existing stream first
+            logInfo('Stopping any existing stream...');
+            await handleStop();
+            // Small delay to ensure cleanup is complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Step 2: Get video URL (with fallback to original URL)
             let videoUrl: string;
             try {
                 logDebug('Resolving video URL...', { originalUrl: url });
@@ -117,16 +123,16 @@ async function handlePlay(title: string, url: string) {
                 logInfo(`Using original URL as fallback: ${videoUrl}`);
             }
 
-            // Step 2: Join voice channel
+            // Step 3: Join voice channel
             logInfo('Joining voice channel...');
             const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
             logInfo('Successfully joined voice channel');
 
-            // Step 3: Set status
+            // Step 4: Set status
             logInfo(`Setting watching status to "${title}"`);
             discordService.setWatchingStatus(title);
 
-            // Step 4: Start streaming
+            // Step 5: Start streaming
             logInfo('Starting video stream...');
             await discordService.startStreaming(videoUrl, streamUdpConn);
             logInfo(`Successfully playing "${title}"`);
