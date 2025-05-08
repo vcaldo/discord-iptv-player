@@ -21,22 +21,16 @@ export class DiscordService {
         this.logger = new Logger('DiscordService');
         this.client = new Client();
 
-        // Initialize the service components
         this.statusManager = new StatusManager(this.client);
         this.connectionManager = new DiscordConnectionManager(
             this.client,
-            // Set idle status when connected
             () => this.statusManager.setIdleStatus()
         );
         this.streamService = new StreamService(this.client);
 
-        // Start the connection process
         this.initialize();
     }
 
-    /**
-     * Initialize the Discord client connection
-     */
     private async initialize(): Promise<void> {
         return newrelic.startBackgroundTransaction('discord:initialize-service', async () => {
             try {
@@ -49,18 +43,12 @@ export class DiscordService {
         });
     }
 
-    /**
-     * Set idle/ready status
-     */
     public setIdleStatus(): void {
         newrelic.startSegment('set-idle-status', true, () => {
             this.statusManager.setIdleStatus();
         });
     }
 
-    /**
-     * Set watching status with the specified content name
-     */
     public setWatchingStatus(name: string): void {
         newrelic.startSegment('set-watching-status', true, () => {
             newrelic.addCustomAttribute('content_name', name);
@@ -68,9 +56,6 @@ export class DiscordService {
         });
     }
 
-    /**
-     * Join a voice channel and prepare for streaming
-     */
     public async joinVoiceChannel(streamOpts: StreamOptions): Promise<MediaUdp> {
         return newrelic.startSegment('join-voice-channel', true, async () => {
             if (!this.isReady()) {
@@ -82,18 +67,12 @@ export class DiscordService {
         });
     }
 
-    /**
-     * Leave the current voice channel
-     */
     public leaveVoiceChannel(): void {
         newrelic.startSegment('leave-voice-channel', true, () => {
             this.streamService.leaveVoiceChannel();
         });
     }
 
-    /**
-     * Start streaming the specified video
-     */
     public async startStreaming(video: string, udpConn: MediaUdp): Promise<string> {
         return newrelic.startSegment('start-streaming', true, async () => {
             if (!this.isReady()) {
@@ -105,16 +84,10 @@ export class DiscordService {
         });
     }
 
-    /**
-     * Check if the client is ready
-     */
     public isReady(): boolean {
         return this.connectionManager.isConnected();
     }
 
-    /**
-     * Gracefully shut down the Discord client
-     */
     public shutdown(): void {
         return newrelic.startBackgroundTransaction('discord:shutdown-service', () => {
             this.logger.log('Shutting down Discord service...');

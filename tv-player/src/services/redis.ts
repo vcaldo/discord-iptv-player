@@ -4,13 +4,11 @@ import { RedisMessage } from '../types/types.js';
 import { Logger } from '../utils/logger.js';
 import newrelic from 'newrelic';
 
-// Maximum number of retry attempts for Redis operations
 const MAX_RETRY_ATTEMPTS = 5;
-// Delay between retry attempts in milliseconds
 const RETRY_DELAY_MS = 2000;
 
 export class RedisService {
-    private redis!: Redis; // Using definite assignment assertion
+    private redis!: Redis;
     private isConnected: boolean = false;
     private reconnectAttempts: number = 0;
     private subscriptions: Map<string, (message: RedisMessage) => Promise<void>> = new Map();
@@ -34,12 +32,11 @@ export class RedisService {
                 port: config.redisPort,
                 password: config.redisPassword,
                 retryStrategy: (times) => {
-                    // Implement exponential backoff with max retries
                     if (times >= MAX_RETRY_ATTEMPTS) {
                         this.logger.error(`Redis connection failed after ${times} attempts. No further retries.`);
-                        return null; // Stop retrying
+                        return null;
                     }
-                    const delay = Math.min(RETRY_DELAY_MS * Math.pow(2, times), 30000); // Cap at 30 seconds
+                    const delay = Math.min(RETRY_DELAY_MS * Math.pow(2, times), 30000);
                     this.logger.warn(`Retrying Redis connection in ${delay}ms (attempt ${times + 1}/${MAX_RETRY_ATTEMPTS})...`);
                     return delay;
                 }
@@ -53,18 +50,16 @@ export class RedisService {
     }
 
     private setupEventHandlers() {
-        // Handle successful connection
         this.redis.on('connect', () => {
             this.logger.info('Connected to Redis server', {
                 host: config.redisHost,
                 port: config.redisPort
             });
             this.isConnected = true;
-            this.reconnectAttempts = 0; // Reset counter on successful connection
+            this.reconnectAttempts = 0;
             this.restoreSubscriptions();
         });
 
-        // Handle connection errors
         this.redis.on('error', (error) => {
             this.logger.error('Redis connection error:', error);
             if (this.isConnected) {
@@ -72,18 +67,15 @@ export class RedisService {
             }
         });
 
-        // Handle disconnection
         this.redis.on('close', () => {
             this.logger.warn('Redis connection closed');
             this.isConnected = false;
         });
 
-        // Handle reconnection
         this.redis.on('reconnecting', () => {
             this.logger.info('Attempting to reconnect to Redis...');
         });
 
-        // Handle end of connection (final termination)
         this.redis.on('end', () => {
             this.logger.warn('Redis connection ended');
             this.isConnected = false;
@@ -102,8 +94,7 @@ export class RedisService {
                         this.setupRedisClient();
                     } catch (error) {
                         this.logger.error('Error during Redis reconnection attempt:', error);
-                        // Increase delay for next retry with exponential backoff
-                        const nextDelayMs = Math.min(delayMs * 2, 30000); // Cap at 30 seconds
+                        const nextDelayMs = Math.min(delayMs * 2, 30000);
                         this.attemptReconnect(nextDelayMs);
                     }
                 }
@@ -114,7 +105,6 @@ export class RedisService {
         }
     }
 
-    // Restore all active subscriptions after reconnection
     private async restoreSubscriptions() {
         if (this.subscriptions.size > 0) {
             this.logger.info(`Restoring ${this.subscriptions.size} Redis subscription(s)...`);
@@ -146,10 +136,8 @@ export class RedisService {
 
     public async subscribe(pubSubChannel: string, messageHandler: (message: RedisMessage) => Promise<void>) {
         return newrelic.startBackgroundTransaction('pub-sub:subscribe', 'Redis', async () => {
-            // Add custom attributes to the New Relic transaction
             newrelic.addCustomAttribute('channel', pubSubChannel);
 
-            // Store the subscription for reconnection purposes
             this.subscriptions.set(pubSubChannel, messageHandler);
 
             let attempts = 0;
@@ -157,7 +145,6 @@ export class RedisService {
 
             while (attempts < MAX_RETRY_ATTEMPTS && !subscribed) {
                 try {
-                    // Wait for connection if not connected
                     if (!this.isConnected) {
                         this.logger.warn('Redis not connected. Waiting before attempting to subscribe...');
                         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
@@ -165,13 +152,11 @@ export class RedisService {
                         continue;
                     }
 
-                    // Subscribe to the channel
                     await newrelic.startSegment('subscribe-to-channel', true, async () => {
                         await this.subscribeToChannel(pubSubChannel);
                     });
                     subscribed = true;
 
-                    // Only set up the message handler once
                     if (!this.redis.listenerCount('message')) {
                         this.logger.debug('Setting up Redis message handler');
                         this.redis.on('message', async (receivedChannel: string, message: string) => {
@@ -181,7 +166,6 @@ export class RedisService {
                                     this.logger.debug(`Received message on channel ${receivedChannel}`, { messageLength: message.length });
                                     this.logger.debug(`Message content: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
 
-                                    // Wrap message parsing in New Relic segment
                                     const parsedMessage = await newrelic.startSegment('parse-redis-message', true, async () => {
                                         return this.parseMessage(message);
                                     });
@@ -198,7 +182,6 @@ export class RedisService {
                     }
 
                 } catch (error) {
-                    // Report error to New Relic
                     newrelic.noticeError(error);
                     attempts++;
                     this.logger.error(`Error subscribing to Redis channel (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
@@ -209,7 +192,6 @@ export class RedisService {
                         throw new Error(`Failed to subscribe to Redis channel: ${errorMessage}`);
                     }
 
-                    // Wait before retry with exponential backoff
                     const delayMs = RETRY_DELAY_MS * Math.pow(1.5, attempts - 1);
                     this.logger.info(`Retrying subscription in ${delayMs}ms...`);
                     await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -222,7 +204,6 @@ export class RedisService {
         try {
             const parsedMessage = JSON.parse(message) as RedisMessage;
 
-            // Validate required fields
             if (!parsedMessage.command) {
                 this.logger.error('Received invalid Redis message: missing command field', {
                     messagePreview: message.substring(0, 100)
@@ -245,7 +226,6 @@ export class RedisService {
 
     public async publish(channel: string, message: RedisMessage): Promise<boolean> {
         return newrelic.startBackgroundTransaction('pub-sub:publish', 'Redis', async () => {
-            // Add custom attributes to the New Relic transaction
             newrelic.addCustomAttribute('channel', channel);
             newrelic.addCustomAttribute('command', message.command);
 
@@ -253,7 +233,6 @@ export class RedisService {
 
             while (attempts < MAX_RETRY_ATTEMPTS) {
                 try {
-                    // Wait for connection if not connected
                     if (!this.isConnected) {
                         this.logger.warn('Redis not connected. Waiting before attempting to publish...');
                         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
@@ -267,7 +246,6 @@ export class RedisService {
                         messageLength: stringifiedMessage.length
                     });
 
-                    // Instrument the actual publish call with New Relic
                     const result = await newrelic.startSegment('redis-publish', true, async () => {
                         return await this.redis.publish(channel, stringifiedMessage);
                     });
@@ -278,7 +256,6 @@ export class RedisService {
                     return result > 0;
 
                 } catch (error: unknown) {
-                    // Report error to New Relic
                     newrelic.noticeError(error);
                     attempts++;
                     this.logger.error(`Error publishing to Redis channel (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
@@ -288,7 +265,6 @@ export class RedisService {
                         return false;
                     }
 
-                    // Wait before retry with exponential backoff
                     const delayMs = RETRY_DELAY_MS * Math.pow(1.5, attempts - 1);
                     this.logger.info(`Retrying publish in ${delayMs}ms...`);
                     await new Promise(resolve => setTimeout(resolve, delayMs));

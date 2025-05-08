@@ -66,7 +66,6 @@ export class Logger {
   constructor(context: string) {
     this.context = context;
 
-    // Create a logger instance with console and file transports
     this.logger = winston.createLogger({
       level: config.isDevelopment() ? 'debug' : 'info',
       defaultMeta: { context },
@@ -76,45 +75,35 @@ export class Logger {
   }
 
   /**
-   * Log an informational message
-   * @param message The message to log
-   * @param meta Optional metadata to include
+   * Log alias for info level
    */
   public log(message: string, ...meta: any[]): void {
     this.info(message, ...meta);
   }
 
   /**
-   * Log debug information (only in development)
-   * @param message The message to log
-   * @param meta Optional metadata to include
+   * Log at debug level
    */
   public debug(message: string, ...meta: any[]): void {
     this.logger.debug(message, ...this.formatMeta(meta));
   }
 
   /**
-   * Log informational message
-   * @param message The message to log
-   * @param meta Optional metadata to include
+   * Log at info level
    */
   public info(message: string, ...meta: any[]): void {
     this.logger.info(message, ...this.formatMeta(meta));
   }
 
   /**
-   * Log a warning message
-   * @param message The message to log
-   * @param meta Optional metadata to include
+   * Log at warning level
    */
   public warn(message: string, ...meta: any[]): void {
     this.logger.warn(message, ...this.formatMeta(meta));
   }
 
   /**
-   * Log an error message
-   * @param message The message to log
-   * @param meta Optional metadata to include (error objects, etc.)
+   * Log at error level
    */
   public error(message: string, ...meta: any[]): void {
     this.logger.error(message, ...this.formatMeta(meta));
@@ -143,11 +132,9 @@ export class Logger {
 /**
  * Flush all log transports to ensure messages are written
  * This is critical during shutdown
- * @returns Promise that resolves when all logs are flushed
  */
 export const flushLogs = async (): Promise<void> => {
   return new Promise<void>((resolve) => {
-    // First log a message to indicate flushing is happening
     appLogger.info('[SHUTDOWN] Flushing log transports...');
 
     // Set a fallback timeout in case flushing gets stuck

@@ -29,7 +29,6 @@ export class StreamService implements StreamProvider {
             newrelic.addCustomAttribute('channel_id', config.videoChannelId);
 
             try {
-                // Check if client is ready before attempting to join
                 if (!this.streamer.client.isReady()) {
                     this.logger.error('Discord client not ready.');
                     throw new Error('Discord client not ready');
@@ -37,14 +36,12 @@ export class StreamService implements StreamProvider {
 
                 this.logger.log(`Joining voice channel in guild ${config.guildId}...`);
 
-                // Create a segment for joining voice
                 await newrelic.startSegment('join-voice', true, async () => {
                     await this.streamer.joinVoice(config.guildId, config.videoChannelId, streamOpts);
                 });
 
                 this.logger.log('Creating stream...');
 
-                // Create a segment for creating the stream
                 const stream = await newrelic.startSegment('create-stream', true, async () => {
                     return await this.streamer.createStream(streamOpts);
                 });
@@ -76,13 +73,10 @@ export class StreamService implements StreamProvider {
                 newrelic.noticeError(error);
                 this.logger.error('Error leaving voice channel:', error);
 
-                // Try alternative cleanup if available
                 try {
                     this.logger.log('Attempting force disconnect...');
 
-                    // Create a segment for force disconnect
                     newrelic.startSegment('force-disconnect', true, () => {
-                        // Force disconnect if the normal method fails
                         const guild = this.streamer.client.guilds.cache.get(config.guildId);
                         const voiceState = guild?.voiceStates?.cache.get(this.streamer.client.user?.id || '');
                         if (voiceState) voiceState.disconnect();
@@ -104,13 +98,11 @@ export class StreamService implements StreamProvider {
             newrelic.addCustomAttribute('video_url', video);
 
             try {
-                // Create a segment for setting up streaming
                 await newrelic.startSegment('setup-streaming', true, async () => {
                     udpConn.mediaConnection.setSpeaking(true);
                     udpConn.mediaConnection.setVideoStatus(true);
                 });
 
-                // Create a segment for the actual streaming
                 const res = await newrelic.startSegment('stream-video', true, async () => {
                     return await streamLivestreamVideo(video, udpConn);
                 });
@@ -120,7 +112,7 @@ export class StreamService implements StreamProvider {
             } catch (error) {
                 newrelic.noticeError(error);
                 this.logger.error('Error streaming video:', error);
-                // Clean up connection state on error
+
                 try {
                     udpConn.mediaConnection.setSpeaking(false);
                     udpConn.mediaConnection.setVideoStatus(false);

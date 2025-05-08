@@ -10,9 +10,8 @@ import { YoutubeHelper } from "./utils/youtube.js";
 import { ProcessManager } from "./utils/process-manager.js";
 import { appLogger, logError, logInfo, logWarn, logDebug } from "./utils/logger.js";
 
-// Maximum number of retry attempts for operations
+// Configuration constants
 const MAX_RETRY_ATTEMPTS = 3;
-// Delay between retry attempts in milliseconds
 const RETRY_DELAY_MS = 2000;
 
 // Application startup banner
@@ -32,26 +31,9 @@ const streamOpts: StreamOptions = {
     maxBitrateKbps: config.maxBitrateKbps,
     hardwareAcceleratedDecoding: config.hardwareAcceleratedDecoding,
     videoCodec: Utils.normalizeVideoCodec(config.videoCodec),
-
-    /**
-     * Enables the sending of RTCP sender reports. These reports assist the receiver in synchronizing audio and video frames.
-     * In certain uncommon scenarios, disabling this feature might be beneficial.
-     */
     rtcpSenderReportEnabled: false,
-    /**
-     * Specifies the encoding preset for H264 or H265 codecs. Faster presets result in lower quality.
-     * Available presets include: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, and veryslow.
-     */
     h26xPreset: 'ultrafast',
-    /**
-     * Configures ffmpeg parameters to minimize latency and expedite video output.
-     * Note: This may occasionally cause video output lag.
-     */
     minimizeLatency: false,
-    /**
-     * Forces the use of ChaCha20-Poly1305 encryption, which is generally faster than AES-256-GCM,
-     * except when AES-NI is utilized.
-     */
     forceChacha20Encryption: true
 };
 
@@ -71,17 +53,15 @@ logInfo("Initializing services...");
 const discordService = new DiscordService();
 const redisService = new RedisService();
 const processManager = new ProcessManager();
-const shutdownHandler = new ShutdownHandler(discordService, redisService, processManager); // Updated constructor
+const shutdownHandler = new ShutdownHandler(discordService, redisService, processManager);
 
 // Set up global error handling
 process.on('uncaughtException', (error) => {
     logError('Uncaught Exception - Application will continue running but may be unstable:', error);
-    // Log the error but keep the process running
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     logError('Unhandled Promise Rejection:', { reason, promise });
-    // Log the error but keep the process running
 });
 
 // Setup shutdown handlers
@@ -90,36 +70,26 @@ logInfo("Shutdown handlers configured");
 
 /**
  * Handles the play command with robust error handling and retries
- * @param title The title of the video/stream
- * @param url The URL of the video/stream
  */
 async function handlePlay(title: string, url: string) {
-    // Create New Relic transaction for play operation
     const playTransaction = newrelic.startWebTransaction('handlePlay', async function() {
         try {
-            // Add custom attributes to the transaction
             newrelic.addCustomAttribute('videoTitle', title);
             newrelic.addCustomAttribute('videoUrl', url);
 
             logInfo(`Attempting to play "${title}"`, { url });
 
-            // Check if Discord client is ready
             if (!discordService.isReady()) {
                 logWarn('Discord client not ready. Cannot play at the moment.');
-                // Optionally, you might want to throw an error or return early
                 return;
             }
 
-            // Step 1: Stop any existing stream first
             logInfo('Stopping any existing stream...');
             await handleStop();
-            // Small delay to ensure cleanup is complete
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Step 2: Get video URL (with fallback to original URL)
             let videoUrl: string;
             try {
-                // Create New Relic segment for URL resolution
                 await newrelic.startSegment('resolve-video-url', true, async () => {
                     logDebug('Resolving video URL...', { originalUrl: url });
                     videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
@@ -129,25 +99,19 @@ async function handlePlay(title: string, url: string) {
             } catch (error) {
                 newrelic.noticeError(error);
                 logError('Failed to resolve video URL, using original as fallback:', error);
-                // Fallback to original URL on error
                 videoUrl = url;
                 logInfo(`Using original URL as fallback: ${videoUrl}`);
             }
 
-            // Step 3: Join voice channel
             logInfo('Joining voice channel...');
-            // Create New Relic segment for voice channel joining
             await newrelic.startSegment('join-voice-channel', true, async () => {
                 const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
                 logInfo('Successfully joined voice channel');
 
-                // Step 4: Set status
                 logInfo(`Setting watching status to "${title}"`);
                 discordService.setWatchingStatus(title);
 
-                // Step 5: Start streaming
                 logInfo('Starting video stream...');
-                // Create New Relic segment for streaming
                 await newrelic.startSegment('start-streaming', true, async () => {
                     await discordService.startStreaming(videoUrl, streamUdpConn);
                 });
@@ -155,11 +119,9 @@ async function handlePlay(title: string, url: string) {
             });
 
         } catch (error) {
-            // Report errors to New Relic
             newrelic.noticeError(error);
             logError(`Error during play operation for "${title}":`, error);
 
-            // Clean up on failure
             try {
                 await handleStop();
             } catch (cleanupError) {
@@ -176,55 +138,42 @@ async function handlePlay(title: string, url: string) {
  * Handles the stop command with error handling
  */
 async function handleStop() {
-    // Create New Relic transaction for stop operation
     return newrelic.startWebTransaction('handle-stop', async function() {
         try {
             logInfo("Stopping playback...");
 
-            // First leave the voice channel
             discordService.leaveVoiceChannel();
 
-            // Then kill any running ffmpeg processes
             await newrelic.startSegment('kill-ffmpeg-processes', true, async () => {
                 logInfo("Killing any running ffmpeg processes...");
                 await processManager.killFfmpegProcesses();
             });
 
-            // Finally, set the status back to idle
             discordService.setIdleStatus();
 
             logInfo("Successfully stopped playing");
 
-            // Wait 100ms after stop command to ensure everything is settled
             logDebug("Waiting 100ms after stop command...");
             await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
-            // Report error to New Relic
             newrelic.noticeError(error);
             logError("Error while stopping playback:", error);
 
-            // Try one more time with delay if initial attempt fails
             try {
                 logInfo("Attempting to stop playback again after delay...");
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
                 discordService.leaveVoiceChannel();
-
-                // Make sure to kill ffmpeg processes even in the retry
                 await processManager.killFfmpegProcesses();
-
                 discordService.setIdleStatus();
-                logInfo("Successfully stopped playing (second attempt)");
 
-                // Wait 100ms after stop command retry to ensure everything is settled
+                logInfo("Successfully stopped playing (second attempt)");
                 logDebug("Waiting 100ms after stop command retry...");
                 await new Promise(resolve => setTimeout(resolve, 100));
             } catch (retryError) {
-                // Report retry error to New Relic
                 newrelic.noticeError(retryError);
                 logError("Failed to stop playback after retry:", retryError);
 
-                // Last attempt to at least kill ffmpeg processes
                 try {
                     logInfo("Final attempt to kill ffmpeg processes...");
                     await processManager.killFfmpegProcesses();
@@ -237,16 +186,13 @@ async function handleStop() {
 }
 
 /**
- * Handles incoming Redis messages with error handling
- * @param message The Redis message containing command and parameters
+ * Handles incoming Redis messages
  */
 async function handleMessage(message: RedisMessage) {
-    // Create New Relic transaction for message handling
     return newrelic.startBackgroundTransaction('handle-message', 'Redis', async function() {
         try {
             const { command, title, url } = message;
 
-            // Add custom attributes to the New Relic transaction
             newrelic.addCustomAttribute('command', command || 'none');
             if (title) newrelic.addCustomAttribute('title', title);
             if (url) newrelic.addCustomAttribute('url', url);
@@ -287,7 +233,6 @@ async function handleMessage(message: RedisMessage) {
                     break;
             }
         } catch (error) {
-            // Report error to New Relic
             newrelic.noticeError(error);
             logError("Error handling Redis message:", error);
         }
@@ -300,7 +245,6 @@ try {
     redisService.subscribe(config.redisPubSubChannel, handleMessage);
 } catch (error) {
     logError("Error subscribing to Redis channel:", error);
-    // Try to reconnect and subscribe after delay
     setTimeout(() => {
         try {
             logInfo(`Retrying subscription to Redis channel: ${config.redisPubSubChannel}`);

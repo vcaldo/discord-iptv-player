@@ -22,7 +22,6 @@ export class StatusManager implements StatusProvider {
             return new CustomStatus(this.client).setEmoji(emoji).setState(state);
         } catch (error) {
             this.logger.error('Error creating custom status:', error);
-            // Fallback to a simple status in case of error
             return new CustomStatus(this.client).setState('Online');
         }
     }
@@ -36,7 +35,6 @@ export class StatusManager implements StatusProvider {
             this.setActivity(status);
         } catch (error) {
             this.logger.error('Error setting idle status:', error);
-            // Try a simpler approach as fallback
             try {
                 this.client.user?.setStatus('online');
             } catch (innerError) {
@@ -54,9 +52,7 @@ export class StatusManager implements StatusProvider {
             this.setActivity(status);
         } catch (error) {
             this.logger.error('Error setting watching status:', error);
-            // Try a simpler approach as fallback
             try {
-                // Use string literal for ActivityType to avoid enum issues
                 const activityOptions: ActivityOptions = {
                     type: 'WATCHING',
                     name: name
@@ -68,16 +64,12 @@ export class StatusManager implements StatusProvider {
         }
     }
 
-    /**
-     * Helper method to set activity with proper typing
-     */
     private setActivity(status: CustomStatus): void {
         if (!this.client.user) {
             this.logger.warn('Cannot set activity: client user is not available');
             return;
         }
 
-        // Convert custom status to activity options with proper casting
         const activityOptions = status as unknown as ActivityOptions;
         this.client.user.setActivity(activityOptions);
     }

@@ -8,7 +8,7 @@ export class YoutubeHelper {
             if (video.videoDetails.isLiveContent) {
                 const tsFormats = video.formats.filter((format) => format.container === "ts");
 
-                // I'm guessing that bitrate is always present, but if it's not, we'll get an error
+                // Sort by bitrate to get the highest quality stream
                 const highestTsFormat = tsFormats.sort((a, b) => b.bitrate! - a.bitrate!)[0];
 
                 return highestTsFormat?.url ?? null;
@@ -20,4 +20,4 @@ export class YoutubeHelper {
             return null;
         }
     }
-} 
+}
