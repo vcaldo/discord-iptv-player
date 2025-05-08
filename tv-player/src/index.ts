@@ -1,3 +1,5 @@
+// Initialize New Relic monitoring at the very start
+import newrelic from 'newrelic';
 import { StreamOptions, Utils } from "@dank074/discord-video-stream";
 import config from "./config.js";
 import { DiscordService } from "./services/discord.js";
@@ -17,6 +19,7 @@ logInfo("====================================");
 logInfo(`Discord IPTV Player - Starting up...`);
 logInfo(`Environment: ${config.isDevelopment() ? 'Development' : 'Production'}`);
 logInfo(`Log level: ${config.isDevelopment() ? 'debug' : 'info'}`);
+logInfo(`New Relic monitoring: Enabled`);
 logInfo("====================================");
 
 // Configure stream options
@@ -89,102 +92,131 @@ logInfo("Shutdown handlers configured");
  * @param url The URL of the video/stream
  */
 async function handlePlay(title: string, url: string) {
-    let attempts = 0;
+    // Create New Relic transaction for play operation
+    const playTransaction = newrelic.startWebTransaction('handlePlay', async function() {
+        let attempts = 0;
 
-    while (attempts < MAX_RETRY_ATTEMPTS) {
-        try {
-            logInfo(`Attempting to play "${title}" - attempt ${attempts + 1}/${MAX_RETRY_ATTEMPTS}`, { url });
-
-            // Check if Discord client is ready
-            if (!discordService.isReady()) {
-                logWarn('Discord client not ready. Waiting before attempting to play...');
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
-                attempts++;
-                continue;
-            }
-
-            // Step 1: Stop any existing stream first
-            logInfo('Stopping any existing stream...');
-            await handleStop();
-            // Small delay to ensure cleanup is complete
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Step 2: Get video URL (with fallback to original URL)
-            let videoUrl: string;
+        while (attempts < MAX_RETRY_ATTEMPTS) {
             try {
-                logDebug('Resolving video URL...', { originalUrl: url });
-                videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
-                logInfo(`Resolved video URL successfully`);
-                logDebug(`Video URL details`, { url: videoUrl });
-            } catch (error) {
-                logError('Failed to resolve video URL, using original as fallback:', error);
-                // Fallback to original URL on error
-                videoUrl = url;
-                logInfo(`Using original URL as fallback: ${videoUrl}`);
-            }
+                // Add custom attributes to the transaction
+                newrelic.addCustomAttribute('videoTitle', title);
+                newrelic.addCustomAttribute('videoUrl', url);
+                newrelic.addCustomAttribute('attemptNumber', attempts + 1);
 
-            // Step 3: Join voice channel
-            logInfo('Joining voice channel...');
-            const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-            logInfo('Successfully joined voice channel');
+                logInfo(`Attempting to play "${title}" - attempt ${attempts + 1}/${MAX_RETRY_ATTEMPTS}`, { url });
 
-            // Step 4: Set status
-            logInfo(`Setting watching status to "${title}"`);
-            discordService.setWatchingStatus(title);
-
-            // Step 5: Start streaming
-            logInfo('Starting video stream...');
-            await discordService.startStreaming(videoUrl, streamUdpConn);
-            logInfo(`Successfully playing "${title}"`);
-
-            // If we reach here, everything succeeded
-            return;
-
-        } catch (error) {
-            attempts++;
-            logError(`Error during play operation (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
-
-            if (attempts >= MAX_RETRY_ATTEMPTS) {
-                logError(`Failed to play "${title}" after ${MAX_RETRY_ATTEMPTS} attempts`);
-                // Clean up on failure
-                try {
-                    await handleStop();
-                } catch (cleanupError) {
-                    logError('Error during cleanup after play failure:', cleanupError);
+                // Check if Discord client is ready
+                if (!discordService.isReady()) {
+                    logWarn('Discord client not ready. Waiting before attempting to play...');
+                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+                    attempts++;
+                    continue;
                 }
-                break;
-            }
 
-            // Exponential backoff before retry
-            const delayMs = RETRY_DELAY_MS * Math.pow(1.5, attempts - 1);
-            logInfo(`Retrying play operation in ${delayMs}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delayMs));
+                // Step 1: Stop any existing stream first
+                logInfo('Stopping any existing stream...');
+                await handleStop();
+                // Small delay to ensure cleanup is complete
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Step 2: Get video URL (with fallback to original URL)
+                let videoUrl: string;
+                try {
+                    // Create New Relic segment for URL resolution
+                    await newrelic.startSegment('resolveVideoUrl', true, async () => {
+                        logDebug('Resolving video URL...', { originalUrl: url });
+                        videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
+                        logInfo(`Resolved video URL successfully`);
+                        logDebug(`Video URL details`, { url: videoUrl });
+                    });
+                } catch (error) {
+                    newrelic.noticeError(error);
+                    logError('Failed to resolve video URL, using original as fallback:', error);
+                    // Fallback to original URL on error
+                    videoUrl = url;
+                    logInfo(`Using original URL as fallback: ${videoUrl}`);
+                }
+
+                // Step 3: Join voice channel
+                logInfo('Joining voice channel...');
+                // Create New Relic segment for voice channel joining
+                await newrelic.startSegment('joinVoiceChannel', true, async () => {
+                    const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                    logInfo('Successfully joined voice channel');
+
+                    // Step 4: Set status
+                    logInfo(`Setting watching status to "${title}"`);
+                    discordService.setWatchingStatus(title);
+
+                    // Step 5: Start streaming
+                    logInfo('Starting video stream...');
+                    // Create New Relic segment for streaming
+                    await newrelic.startSegment('startStreaming', true, async () => {
+                        await discordService.startStreaming(videoUrl, streamUdpConn);
+                    });
+                    logInfo(`Successfully playing "${title}"`);
+                });
+
+                // If we reach here, everything succeeded
+                return;
+            } catch (error) {
+                // Report errors to New Relic
+                newrelic.noticeError(error);
+                attempts++;
+                logError(`Error during play operation (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
+
+                if (attempts >= MAX_RETRY_ATTEMPTS) {
+                    logError(`Failed to play "${title}" after ${MAX_RETRY_ATTEMPTS} attempts`);
+                    // Clean up on failure
+                    try {
+                        await handleStop();
+                    } catch (cleanupError) {
+                        newrelic.noticeError(cleanupError);
+                        logError('Error during cleanup after play failure:', cleanupError);
+                    }
+                    break;
+                }
+
+                // Exponential backoff before retry
+                const delayMs = RETRY_DELAY_MS * Math.pow(1.5, attempts - 1);
+                logInfo(`Retrying play operation in ${delayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
         }
-    }
+    });
+
+    return playTransaction;
 }
 
 /**
  * Handles the stop command with error handling
  */
 async function handleStop() {
-    try {
-        logInfo("Stopping playback...");
-        discordService.leaveVoiceChannel();
-        discordService.setIdleStatus();
-        logInfo("Successfully stopped playing");
-    } catch (error) {
-        logError("Error while stopping playback:", error);
-        // Try one more time with delay if initial attempt fails
+    // Create New Relic transaction for stop operation
+    return newrelic.startWebTransaction('handleStop', async function() {
         try {
-            logInfo("Attempting to stop playback again after delay...");
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            logInfo("Stopping playback...");
             discordService.leaveVoiceChannel();
             discordService.setIdleStatus();
-            logInfo("Successfully stopped playing (second attempt)");
-        } catch (retryError) {
-            logError("Failed to stop playback after retry:", retryError);
+            logInfo("Successfully stopped playing");
+        } catch (error) {
+            // Report error to New Relic
+            newrelic.noticeError(error);
+            logError("Error while stopping playback:", error);
+            // Try one more time with delay if initial attempt fails
+            try {
+                logInfo("Attempting to stop playback again after delay...");
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                discordService.leaveVoiceChannel();
+                discordService.setIdleStatus();
+                logInfo("Successfully stopped playing (second attempt)");
+            } catch (retryError) {
+                // Report retry error to New Relic
+                newrelic.noticeError(retryError);
+                logError("Failed to stop playback after retry:", retryError);
+            }
         }
-    }
+    });
 }
 
 /**
@@ -192,46 +224,57 @@ async function handleStop() {
  * @param message The Redis message containing command and parameters
  */
 async function handleMessage(message: RedisMessage) {
-    try {
-        const { command, title, url } = message;
-        logInfo(`Received command: ${command}`, {
-            channel: title || 'N/A',
-            url: url || 'N/A'
-        });
+    // Create New Relic transaction for message handling
+    return newrelic.startBackgroundTransaction('handleMessage', 'Redis', async function() {
+        try {
+            const { command, title, url } = message;
 
-        if (!command) {
-            logError("Received message with no command");
-            return;
+            // Add custom attributes to the New Relic transaction
+            newrelic.addCustomAttribute('command', command || 'none');
+            if (title) newrelic.addCustomAttribute('title', title);
+            if (url) newrelic.addCustomAttribute('url', url);
+
+            logInfo(`Received command: ${command}`, {
+                channel: title || 'N/A',
+                url: url || 'N/A'
+            });
+
+            if (!command) {
+                logError("Received message with no command");
+                return;
+            }
+
+            switch (command.toLowerCase()) {
+                case "play":
+                    if (!title || !url) {
+                        logError("Play command missing required parameters", {
+                            title: title || 'missing',
+                            url: url || 'missing'
+                        });
+                        return;
+                    }
+                    await handlePlay(title, url);
+                    break;
+
+                case "stop":
+                    await handleStop();
+                    break;
+
+                case "restart":
+                    logInfo("Restarting application...");
+                    process.exit(0);
+                    break;
+
+                default:
+                    logWarn(`Unknown command received: ${command}`);
+                    break;
+            }
+        } catch (error) {
+            // Report error to New Relic
+            newrelic.noticeError(error);
+            logError("Error handling Redis message:", error);
         }
-
-        switch (command.toLowerCase()) {
-            case "play":
-                if (!title || !url) {
-                    logError("Play command missing required parameters", {
-                        title: title || 'missing',
-                        url: url || 'missing'
-                    });
-                    return;
-                }
-                await handlePlay(title, url);
-                break;
-
-            case "stop":
-                await handleStop();
-                break;
-
-            case "restart":
-                logInfo("Restarting application...");
-                process.exit(0);
-                break;
-
-            default:
-                logWarn(`Unknown command received: ${command}`);
-                break;
-        }
-    } catch (error) {
-        logError("Error handling Redis message:", error);
-    }
+    });
 }
 
 // Subscribe to Redis channel with error handling
