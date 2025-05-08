@@ -1,65 +1,128 @@
 import { DiscordService } from "../services/discord.js";
 import { RedisService } from "../services/redis.js";
-import { ProcessManager } from "./process-manager.js"; // Added import
-import { logInfo, logError } from "./logger.js"; // Added import for logging
+import { ProcessManager } from "./process-manager.js";
+import { logInfo, logError, logWarn, flushLogs } from "./logger.js";
 
 export class ShutdownHandler {
     private services: {
         discord: DiscordService;
         redis: RedisService;
-        processManager: ProcessManager; // Added processManager
+        processManager: ProcessManager;
     };
+    private shuttingDown: boolean = false;
 
     constructor(
         discordService: DiscordService,
         redisService: RedisService,
-        processManager: ProcessManager, // Added processManager parameter
+        processManager: ProcessManager,
     ) {
         this.services = {
             discord: discordService,
             redis: redisService,
-            processManager: processManager, // Initialize processManager
+            processManager: processManager,
         };
     }
 
     public setupShutdownHandlers() {
-        // Handle graceful shutdown on SIGTERM and SIGINT
-        process.on('SIGTERM', () => this.gracefulShutdown('SIGTERM'));
-        process.on('SIGINT', () => this.gracefulShutdown('SIGINT'));
+        const handleSignal = async (signal: string) => {
+            // Prevent multiple shutdown attempts
+            if (this.shuttingDown) {
+                logWarn(`Shutdown already in progress. Ignoring additional ${signal} signal.`);
+                await flushLogs(); // Make sure this warning is visible
+                return;
+            }
+
+            this.shuttingDown = true;
+
+            try {
+                // Log with timestamp for Docker logs
+                logInfo(`[${new Date().toISOString()}] Signal ${signal} received. Initiating graceful shutdown...`);
+                await flushLogs(); // Ensure the initial shutdown message is visible
+
+                // Use a timeout to ensure shutdown completes even if something hangs
+                const shutdownTimeout = setTimeout(() => {
+                    logWarn(`Shutdown timed out after 10 seconds. Forcing exit...`);
+                    process.exit(1);
+                }, 10000);
+
+                await this.gracefulShutdown(signal);
+
+                // Clear timeout as shutdown completed successfully
+                clearTimeout(shutdownTimeout);
+
+                logInfo(`[${new Date().toISOString()}] Graceful shutdown for ${signal} completed successfully. Exiting process.`);
+                await flushLogs(); // Ensure the final shutdown message is visible
+
+                // Small delay to ensure logs are flushed before exit
+                setTimeout(() => {
+                    process.exit(0);
+                }, 500);
+            } catch (error) {
+                logError(`[${new Date().toISOString()}] Graceful shutdown for ${signal} failed:`, error);
+                await flushLogs(); // Ensure the error message is visible
+
+                // Force exit after error with small delay to flush logs
+                setTimeout(() => {
+                    process.exit(1);
+                }, 500);
+            }
+        };
+
+        // Handle standard termination signals
+        process.on('SIGTERM', () => handleSignal('SIGTERM'));
+        process.on('SIGINT', () => handleSignal('SIGINT'));
+
+        // Handle additional signals sent by Docker
+        process.on('SIGQUIT', () => handleSignal('SIGQUIT'));
+
+        // Handle Node.js-specific events that might occur during shutdown
+        process.on('beforeExit', () => handleSignal('beforeExit'));
+
+        logInfo('Shutdown handlers installed for signals: SIGTERM, SIGINT, SIGQUIT and beforeExit');
     }
 
-    private async gracefulShutdown(signal: string) {
-        logInfo(`\nReceived ${signal}. Starting graceful shutdown...`);
+    private async gracefulShutdown(signal: string): Promise<void> {
+        logInfo(`[${new Date().toISOString()}] Starting graceful shutdown tasks for signal: ${signal}...`);
+        await flushLogs();
 
         try {
             // Stop playback and clean up resources
-            logInfo('Stopping playback and cleaning up resources...');
+            logInfo('[SHUTDOWN] Stopping playback and cleaning up resources...');
+            await flushLogs();
 
             // Disconnect from voice channel if connected
-            await this.services.discord.leaveVoiceChannel();
-            logInfo('Disconnected from Discord voice channel');
+            this.services.discord.leaveVoiceChannel();
+            logInfo('[SHUTDOWN] Disconnected from Discord voice channel');
+            await flushLogs();
 
             // Set the status back to idle
-            await this.services.discord.setIdleStatus();
-            logInfo('Discord status set to idle');
+            this.services.discord.setIdleStatus();
+            logInfo('[SHUTDOWN] Discord status set to idle');
+            await flushLogs();
 
             // Disconnect Discord bot
-            await this.services.discord.shutdown(); // Corrected to use shutdown method
-            logInfo('Discord bot disconnected and offline');
+            this.services.discord.shutdown();
+            logInfo('[SHUTDOWN] Discord bot disconnected and offline');
+            await flushLogs();
 
             // Kill any running ffmpeg processes
-            this.services.processManager.killFfmpegProcesses();
-            logInfo('Killed running ffmpeg processes');
+            logInfo('[SHUTDOWN] Killing running ffmpeg processes...');
+            await this.services.processManager.killFfmpegProcesses();
+            logInfo('[SHUTDOWN] Killed running ffmpeg processes');
+            await flushLogs();
 
             // Disconnect Redis
+            logInfo('[SHUTDOWN] Disconnecting from Redis...');
             this.services.redis.disconnect();
-            logInfo('Disconnected from Redis');
+            logInfo('[SHUTDOWN] Disconnected from Redis');
+            await flushLogs();
 
-            logInfo('Graceful shutdown completed');
-            process.exit(0);
+            logInfo('[SHUTDOWN] All graceful shutdown tasks completed.');
+            await flushLogs();
         } catch (error) {
-            logError('Error during graceful shutdown:', error);
-            process.exit(1);
+            logError('[SHUTDOWN] Error during graceful shutdown tasks:', error);
+            await flushLogs();
+            throw error;
         }
     }
 }

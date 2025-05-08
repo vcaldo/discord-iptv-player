@@ -15,11 +15,18 @@ services:
       context: ./tv-player
       dockerfile: Dockerfile
     restart: unless-stopped
-    stop_grace_period: 5s # Added to allow more time for graceful shutdown
+    stop_grace_period: 60s # Increased to give more time for graceful shutdown
+    stop_signal: SIGTERM # Explicitly set SIGTERM as the stop signal
+    init: true # Use tini init system to properly handle signals
     env_file:
       - tv-player/.env
     depends_on:
       - redis
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7.4

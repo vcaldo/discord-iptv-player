@@ -26,6 +26,32 @@ const colorizedFormat = winston.format.combine(
   logFormat
 );
 
+// Create shared winston transports
+const consoleTransport = new winston.transports.Console({
+  format: colorizedFormat,
+  handleExceptions: true
+});
+
+const combinedFileTransport = new winston.transports.File({
+  filename: path.join(logsDir, 'combined.log'),
+  format: logFormat,
+  maxsize: 5242880, // 5MB
+  maxFiles: 5,
+  tailable: true
+});
+
+const errorFileTransport = new winston.transports.File({
+  filename: path.join(logsDir, 'error.log'),
+  level: 'error',
+  format: logFormat,
+  maxsize: 5242880, // 5MB
+  maxFiles: 5,
+  tailable: true
+});
+
+// Store all transport instances to access them for flushing
+const allTransports = [consoleTransport, combinedFileTransport, errorFileTransport];
+
 /**
  * Enhanced Logger utility class for structured logging
  */
@@ -44,29 +70,8 @@ export class Logger {
     this.logger = winston.createLogger({
       level: config.isDevelopment() ? 'debug' : 'info',
       defaultMeta: { context },
-      transports: [
-        // Console transport with colors
-        new winston.transports.Console({
-          format: colorizedFormat
-        }),
-        // File transport for all logs
-        new winston.transports.File({
-          filename: path.join(logsDir, 'combined.log'),
-          format: logFormat,
-          maxsize: 5242880, // 5MB
-          maxFiles: 5,
-          tailable: true
-        }),
-        // Separate file for error logs
-        new winston.transports.File({
-          filename: path.join(logsDir, 'error.log'),
-          level: 'error',
-          format: logFormat,
-          maxsize: 5242880, // 5MB
-          maxFiles: 5,
-          tailable: true
-        })
-      ]
+      transports: allTransports,
+      exitOnError: false
     });
   }
 
@@ -134,6 +139,64 @@ export class Logger {
     });
   }
 }
+
+/**
+ * Flush all log transports to ensure messages are written
+ * This is critical during shutdown
+ * @returns Promise that resolves when all logs are flushed
+ */
+export const flushLogs = async (): Promise<void> => {
+  return new Promise<void>((resolve) => {
+    // First log a message to indicate flushing is happening
+    appLogger.info('[SHUTDOWN] Flushing log transports...');
+
+    // Set a fallback timeout in case flushing gets stuck
+    const fallbackTimeout = setTimeout(() => {
+      console.log('[SHUTDOWN] Log flush timeout - forced completion');
+      resolve();
+    }, 2000);
+
+    // Count completed transports
+    let completed = 0;
+
+    // Nothing to flush
+    if (allTransports.length === 0) {
+      clearTimeout(fallbackTimeout);
+      resolve();
+      return;
+    }
+
+    // Try to flush each transport
+    allTransports.forEach(transport => {
+      // Check if transport has a 'flush' method
+      if (typeof (transport as any).flush === 'function') {
+        try {
+          (transport as any).flush(() => {
+            completed++;
+            if (completed >= allTransports.length) {
+              clearTimeout(fallbackTimeout);
+              resolve();
+            }
+          });
+        } catch (err) {
+          console.error('[SHUTDOWN] Error flushing transport:', err);
+          completed++;
+          if (completed >= allTransports.length) {
+            clearTimeout(fallbackTimeout);
+            resolve();
+          }
+        }
+      } else {
+        // No flush method, just count it as completed
+        completed++;
+        if (completed >= allTransports.length) {
+          clearTimeout(fallbackTimeout);
+          resolve();
+        }
+      }
+    });
+  });
+};
 
 // Create a singleton instance for application-wide logging
 export const appLogger = new Logger('App');
