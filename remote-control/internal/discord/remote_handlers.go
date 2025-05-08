@@ -79,15 +79,10 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("channel_id", channelID)
 	txn.AddAttribute("channel_name", channel.Name)
 
-	// remoteControlCommand := &models.RemoteControlCommand{
-	// 	Command:   "play",
-	// 	TvChannel: channel,
-	// }
-
-	remoteControlCommand := &models.ChannelCommand{
-		Command: "play",
-		Tittle:  channel.Name,
-		URL:     channel.Url,
+	remoteControlCommand := &models.RemoteControlCommand{
+		Command: models.PlayCommand,
+		Title:   channel.Name,
+		Url:     channel.Url,
 	}
 
 	err = b.redis.RemoteControlCommand(remoteControlCommand)
@@ -115,13 +110,8 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
-	// remoteControlCommand := &models.RemoteControlCommand{
-	// 	Command: models.StopCommand,
-	// }
-
-	remoteControlCommand := &models.ChannelCommand{
+	remoteControlCommand := &models.RemoteControlCommand{
 		Command: models.StopCommand,
-		Tittle:  "stop",
 	}
 
 	err := b.redis.RemoteControlCommand(remoteControlCommand)
