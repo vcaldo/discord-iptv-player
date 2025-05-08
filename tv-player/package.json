@@ -1,5 +1,5 @@
 {
-  "name": "tvbarrapesada",
+  "name": "discord-iptv-player",
   "version": "0.0.1",
   "description": "A self bot to stream movies/videos to Discord.",
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
     "@distube/ytdl-core": "^4.15.1",
     "@types/ioredis": "^4.28.10",
     "axios": "^1.7.9",
-    "discord.js-selfbot-v13": "^3.4.5",
+    "discord.js-selfbot-v13": "^3.6.1",
     "dotenv": "^16.4.7",
     "ioredis": "^5.4.2",
     "tslib": "^2.8.1"
