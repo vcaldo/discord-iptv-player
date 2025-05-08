@@ -2,6 +2,7 @@ import { Client } from "discord.js-selfbot-v13";
 import { Streamer, StreamOptions, MediaUdp, streamLivestreamVideo } from "@dank074/discord-video-stream";
 import { StreamProvider } from "./interfaces.js";
 import { Logger } from "../../utils/logger.js";
+import { ProcessManager } from "../../utils/process-manager.js";
 import config from "../../config.js";
 import newrelic from 'newrelic';
 
@@ -16,10 +17,12 @@ const RETRY_DELAY_MS = 2000;
 export class StreamService implements StreamProvider {
     private streamer: Streamer;
     private logger: Logger;
+    private processManager: ProcessManager;
 
     constructor(client: Client) {
         this.streamer = new Streamer(client);
         this.logger = new Logger('StreamService');
+        this.processManager = new ProcessManager();
     }
 
     /**

@@ -16,6 +16,6 @@ COPY tsconfig.json ./
 
 RUN pnpm run build
 
-RUN apt update && apt install -y ffmpeg
+RUN apt update && apt install -y ffmpeg procps
 
 CMD ["pnpm", "run", "start"]

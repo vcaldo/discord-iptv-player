@@ -7,6 +7,7 @@ import { RedisService } from "./services/redis.js";
 import { RedisMessage } from "./types/types.js";
 import { ShutdownHandler } from "./utils/shutdown.js";
 import { YoutubeHelper } from "./utils/youtube.js";
+import { ProcessManager } from "./utils/process-manager.js";
 import { appLogger, logError, logInfo, logWarn, logDebug } from "./utils/logger.js";
 
 // Maximum number of retry attempts for operations
@@ -69,6 +70,7 @@ logDebug("Stream configuration:", {
 logInfo("Initializing services...");
 const discordService = new DiscordService();
 const redisService = new RedisService();
+const processManager = new ProcessManager();
 const shutdownHandler = new ShutdownHandler(discordService, redisService);
 
 // Set up global error handling
@@ -193,27 +195,52 @@ async function handlePlay(title: string, url: string) {
  */
 async function handleStop() {
     // Create New Relic transaction for stop operation
-    return newrelic.startWebTransaction('handleStop', async function() {
+    return newrelic.startWebTransaction('handle-stop', async function() {
         try {
             logInfo("Stopping playback...");
+
+            // First leave the voice channel
             discordService.leaveVoiceChannel();
+
+            // Then kill any running ffmpeg processes
+            await newrelic.startSegment('kill-ffmpeg-processes', true, async () => {
+                logInfo("Killing any running ffmpeg processes...");
+                await processManager.killFfmpegProcesses();
+            });
+
+            // Finally, set the status back to idle
             discordService.setIdleStatus();
+
             logInfo("Successfully stopped playing");
         } catch (error) {
             // Report error to New Relic
             newrelic.noticeError(error);
             logError("Error while stopping playback:", error);
+
             // Try one more time with delay if initial attempt fails
             try {
                 logInfo("Attempting to stop playback again after delay...");
                 await new Promise(resolve => setTimeout(resolve, 1000));
+
                 discordService.leaveVoiceChannel();
+
+                // Make sure to kill ffmpeg processes even in the retry
+                await processManager.killFfmpegProcesses();
+
                 discordService.setIdleStatus();
                 logInfo("Successfully stopped playing (second attempt)");
             } catch (retryError) {
                 // Report retry error to New Relic
                 newrelic.noticeError(retryError);
                 logError("Failed to stop playback after retry:", retryError);
+
+                // Last attempt to at least kill ffmpeg processes
+                try {
+                    logInfo("Final attempt to kill ffmpeg processes...");
+                    await processManager.killFfmpegProcesses();
+                } catch (finalError) {
+                    logError("Failed to kill ffmpeg processes in final attempt:", finalError);
+                }
             }
         }
     });
