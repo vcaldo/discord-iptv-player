@@ -1,6 +1,7 @@
 import { Redis } from 'ioredis';
 import config from '../config.js';
 import { RedisMessage } from '../types/types.js';
+import { Logger } from '../utils/logger.js';
 
 // Maximum number of retry attempts for Redis operations
 const MAX_RETRY_ATTEMPTS = 5;
@@ -12,13 +13,21 @@ export class RedisService {
     private isConnected: boolean = false;
     private reconnectAttempts: number = 0;
     private subscriptions: Map<string, (message: RedisMessage) => Promise<void>> = new Map();
+    private logger: Logger;
 
     constructor() {
+        this.logger = new Logger('RedisService');
         this.setupRedisClient();
     }
 
     private setupRedisClient() {
         try {
+            this.logger.info('Creating Redis client...', {
+                host: config.redisHost,
+                port: config.redisPort,
+                passwordProvided: !!config.redisPassword
+            });
+            
             this.redis = new Redis({
                 host: config.redisHost,
                 port: config.redisPort,
@@ -26,18 +35,18 @@ export class RedisService {
                 retryStrategy: (times) => {
                     // Implement exponential backoff with max retries
                     if (times >= MAX_RETRY_ATTEMPTS) {
-                        console.error(`Redis connection failed after ${times} attempts. No further retries.`);
+                        this.logger.error(`Redis connection failed after ${times} attempts. No further retries.`);
                         return null; // Stop retrying
                     }
                     const delay = Math.min(RETRY_DELAY_MS * Math.pow(2, times), 30000); // Cap at 30 seconds
-                    console.log(`Retrying Redis connection in ${delay}ms (attempt ${times + 1}/${MAX_RETRY_ATTEMPTS})...`);
+                    this.logger.warn(`Retrying Redis connection in ${delay}ms (attempt ${times + 1}/${MAX_RETRY_ATTEMPTS})...`);
                     return delay;
                 }
             });
 
             this.setupEventHandlers();
         } catch (error) {
-            console.error('Failed to create Redis client:', error);
+            this.logger.error('Failed to create Redis client:', error);
             this.attemptReconnect();
         }
     }
@@ -45,15 +54,18 @@ export class RedisService {
     private setupEventHandlers() {
         // Handle successful connection
         this.redis.on('connect', () => {
-            console.log('Connected to Redis server');
+            this.logger.info('Connected to Redis server', {
+                host: config.redisHost,
+                port: config.redisPort
+            });
             this.isConnected = true;
-            this.reconnectAttempts = 0;
+            this.reconnectAttempts = 0; // Reset counter on successful connection
             this.restoreSubscriptions();
         });
 
         // Handle connection errors
         this.redis.on('error', (error) => {
-            console.error('Redis connection error:', error);
+            this.logger.error('Redis connection error:', error);
             if (this.isConnected) {
                 this.isConnected = false;
             }
@@ -61,18 +73,18 @@ export class RedisService {
 
         // Handle disconnection
         this.redis.on('close', () => {
-            console.log('Redis connection closed');
+            this.logger.warn('Redis connection closed');
             this.isConnected = false;
         });
 
         // Handle reconnection
         this.redis.on('reconnecting', () => {
-            console.log('Attempting to reconnect to Redis...');
+            this.logger.info('Attempting to reconnect to Redis...');
         });
 
         // Handle end of connection (final termination)
         this.redis.on('end', () => {
-            console.log('Redis connection ended');
+            this.logger.warn('Redis connection ended');
             this.isConnected = false;
             this.attemptReconnect();
         });
@@ -81,14 +93,14 @@ export class RedisService {
     private attemptReconnect(delayMs = RETRY_DELAY_MS) {
         if (this.reconnectAttempts < MAX_RETRY_ATTEMPTS) {
             this.reconnectAttempts++;
-            console.log(`Attempting to reconnect to Redis (${this.reconnectAttempts}/${MAX_RETRY_ATTEMPTS}) in ${delayMs}ms...`);
+            this.logger.info(`Attempting to reconnect to Redis (${this.reconnectAttempts}/${MAX_RETRY_ATTEMPTS}) in ${delayMs}ms...`);
 
             setTimeout(() => {
                 if (!this.isConnected) {
                     try {
                         this.setupRedisClient();
                     } catch (error) {
-                        console.error('Error during Redis reconnection attempt:', error);
+                        this.logger.error('Error during Redis reconnection attempt:', error);
                         // Increase delay for next retry with exponential backoff
                         const nextDelayMs = Math.min(delayMs * 2, 30000); // Cap at 30 seconds
                         this.attemptReconnect(nextDelayMs);
@@ -96,22 +108,22 @@ export class RedisService {
                 }
             }, delayMs);
         } else {
-            console.error(`Failed to reconnect to Redis after ${MAX_RETRY_ATTEMPTS} attempts.`);
-            console.error('Redis functionality is degraded. Application may not receive commands.');
+            this.logger.error(`Failed to reconnect to Redis after ${MAX_RETRY_ATTEMPTS} attempts.`);
+            this.logger.error('Redis functionality is degraded. Application may not receive commands.');
         }
     }
 
     // Restore all active subscriptions after reconnection
     private async restoreSubscriptions() {
         if (this.subscriptions.size > 0) {
-            console.log(`Restoring ${this.subscriptions.size} Redis subscription(s)...`);
+            this.logger.info(`Restoring ${this.subscriptions.size} Redis subscription(s)...`);
 
             for (const [channel, handler] of this.subscriptions.entries()) {
                 try {
                     await this.subscribeToChannel(channel);
-                    console.log(`Restored subscription to channel: ${channel}`);
+                    this.logger.info(`Restored subscription to channel: ${channel}`);
                 } catch (error) {
-                    console.error(`Failed to restore subscription to channel ${channel}:`, error);
+                    this.logger.error(`Failed to restore subscription to channel ${channel}:`, error);
                 }
             }
         }
@@ -121,10 +133,10 @@ export class RedisService {
         return new Promise((resolve, reject) => {
             this.redis.subscribe(channel, (err) => {
                 if (err) {
-                    console.error(`Failed to subscribe to Redis channel ${channel}:`, err);
+                    this.logger.error(`Failed to subscribe to Redis channel ${channel}:`, err);
                     reject(err);
                 } else {
-                    console.log(`Subscribed to Redis channel: ${channel}`);
+                    this.logger.info(`Subscribed to Redis channel: ${channel}`);
                     resolve();
                 }
             });
@@ -142,7 +154,7 @@ export class RedisService {
             try {
                 // Wait for connection if not connected
                 if (!this.isConnected) {
-                    console.log('Redis not connected. Waiting before attempting to subscribe...');
+                    this.logger.warn('Redis not connected. Waiting before attempting to subscribe...');
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
                     attempts++;
                     continue;
@@ -154,17 +166,20 @@ export class RedisService {
 
                 // Only set up the message handler once
                 if (!this.redis.listenerCount('message')) {
+                    this.logger.debug('Setting up Redis message handler');
                     this.redis.on('message', async (receivedChannel: string, message: string) => {
                         const handler = this.subscriptions.get(receivedChannel);
                         if (handler) {
                             try {
-                                console.log(`Received message on channel ${receivedChannel}: ${message}`);
+                                this.logger.debug(`Received message on channel ${receivedChannel}`, { messageLength: message.length });
+                                this.logger.debug(`Message content: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+                                
                                 const parsedMessage = this.parseMessage(message);
                                 if (parsedMessage) {
                                     await handler(parsedMessage);
                                 }
                             } catch (error) {
-                                console.error(`Error processing Redis message on channel ${receivedChannel}:`, error);
+                                this.logger.error(`Error processing Redis message on channel ${receivedChannel}:`, error);
                             }
                         }
                     });
@@ -172,17 +187,17 @@ export class RedisService {
 
             } catch (error) {
                 attempts++;
-                console.error(`Error subscribing to Redis channel (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
+                this.logger.error(`Error subscribing to Redis channel (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
 
                 if (attempts >= MAX_RETRY_ATTEMPTS) {
-                    console.error(`Failed to subscribe to Redis channel ${pubSubChannel} after multiple attempts`);
+                    this.logger.error(`Failed to subscribe to Redis channel ${pubSubChannel} after multiple attempts`);
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     throw new Error(`Failed to subscribe to Redis channel: ${errorMessage}`);
                 }
 
                 // Wait before retry with exponential backoff
                 const delayMs = RETRY_DELAY_MS * Math.pow(1.5, attempts - 1);
-                console.log(`Retrying subscription in ${delayMs}ms...`);
+                this.logger.info(`Retrying subscription in ${delayMs}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         }
@@ -194,13 +209,21 @@ export class RedisService {
 
             // Validate required fields
             if (!parsedMessage.command) {
-                console.error('Received invalid Redis message: missing command field');
+                this.logger.error('Received invalid Redis message: missing command field', { 
+                    messagePreview: message.substring(0, 100)
+                });
                 return null;
             }
 
+            this.logger.debug('Successfully parsed Redis message', { 
+                command: parsedMessage.command,
+                title: parsedMessage.title || 'N/A'
+            });
             return parsedMessage;
         } catch (error) {
-            console.error('Error parsing Redis message:', error, 'Raw message:', message);
+            this.logger.error('Error parsing Redis message:', error, {
+                rawMessage: message.substring(0, 100) + (message.length > 100 ? '...' : '')
+            });
             return null;
         }
     }
@@ -212,28 +235,36 @@ export class RedisService {
             try {
                 // Wait for connection if not connected
                 if (!this.isConnected) {
-                    console.log('Redis not connected. Waiting before attempting to publish...');
+                    this.logger.warn('Redis not connected. Waiting before attempting to publish...');
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
                     attempts++;
                     continue;
                 }
 
-                const result = await this.redis.publish(channel, JSON.stringify(message));
-                console.log(`Published message to channel ${channel}, received by ${result} subscriber(s)`);
+                const stringifiedMessage = JSON.stringify(message);
+                this.logger.debug(`Publishing message to channel ${channel}`, { 
+                    command: message.command,
+                    messageLength: stringifiedMessage.length
+                });
+
+                const result = await this.redis.publish(channel, stringifiedMessage);
+                this.logger.info(`Published message to channel ${channel}, received by ${result} subscriber(s)`, {
+                    command: message.command
+                });
                 return result > 0;
 
             } catch (error: unknown) {
                 attempts++;
-                console.error(`Error publishing to Redis channel (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
+                this.logger.error(`Error publishing to Redis channel (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
 
                 if (attempts >= MAX_RETRY_ATTEMPTS) {
-                    console.error(`Failed to publish to Redis channel ${channel} after multiple attempts`);
+                    this.logger.error(`Failed to publish to Redis channel ${channel} after multiple attempts`);
                     return false;
                 }
 
                 // Wait before retry with exponential backoff
                 const delayMs = RETRY_DELAY_MS * Math.pow(1.5, attempts - 1);
-                console.log(`Retrying publish in ${delayMs}ms...`);
+                this.logger.info(`Retrying publish in ${delayMs}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         }
@@ -244,11 +275,12 @@ export class RedisService {
     public disconnect() {
         try {
             if (this.isConnected) {
+                this.logger.info('Disconnecting from Redis');
                 this.redis.disconnect();
-                console.log('Redis disconnected successfully');
+                this.logger.info('Redis disconnected successfully');
             }
         } catch (error) {
-            console.error('Error disconnecting from Redis:', error);
+            this.logger.error('Error disconnecting from Redis:', error);
         } finally {
             this.isConnected = false;
             this.subscriptions.clear();
