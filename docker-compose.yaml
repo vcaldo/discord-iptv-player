@@ -15,9 +15,9 @@ services:
       context: ./tv-player
       dockerfile: Dockerfile
     restart: unless-stopped
-    stop_grace_period: 60s # Increased to give more time for graceful shutdown
-    stop_signal: SIGTERM # Explicitly set SIGTERM as the stop signal
-    init: true # Use tini init system to properly handle signals
+    stop_grace_period: 5s
+    stop_signal: SIGTERM
+    init: true
     env_file:
       - tv-player/.env
     depends_on:
