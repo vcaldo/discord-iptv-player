@@ -40,6 +40,18 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			},
 		},
 		{
+			Name:        models.YoutubeCommand,
+			Description: "Play a YouTube video",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "url",
+					Description: "The YouTube video URL to play",
+					Required:    true,
+				},
+			},
+		},
+		{
 			Name:        models.StopCommand,
 			Description: "Stop currently playing TV channel",
 		},

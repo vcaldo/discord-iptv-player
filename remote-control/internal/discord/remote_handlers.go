@@ -28,6 +28,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 	switch i.ApplicationCommandData().Name {
 	case models.TvCommand:
 		return b.handleTvCommand(ctx, s, i, config, nrApp)
+	case models.YoutubeCommand:
+		return b.handleYoutubeCommand(ctx, s, i, config, nrApp)
 	case models.StopCommand:
 		return b.handleStopCommand(ctx, s, i, config, nrApp)
 	case models.SearchCommand:
@@ -97,6 +99,57 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	// Use followup message since we already acknowledged the interaction
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: fmt.Sprintf("Starting to play channel: %s", channel.Name),
+	})
+	return err
+}
+
+func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-youtube-command")
+	defer txn.End()
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	options := i.ApplicationCommandData().Options
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
+	}
+
+	var youtubeURL string
+	if opt, ok := optionMap["url"]; ok {
+		youtubeURL = opt.StringValue()
+	} else {
+		// Use followup message since we already acknowledged the interaction
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "Please specify a YouTube URL to play",
+		})
+		return err
+	}
+
+	txn.AddAttribute("youtube_url", youtubeURL)
+
+	title := "YouTube Video"
+
+	remoteControlCommand := &models.RemoteControlCommand{
+		Command: models.PlayCommand,
+		Title:   title,
+		Url:     youtubeURL,
+	}
+
+	err := b.redis.RemoteControlCommand(remoteControlCommand)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error starting YouTube playback: %v", err),
+		})
+		return msgErr
+	}
+
+	// Use followup message since we already acknowledged the interaction
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: fmt.Sprintf("Starting to play YouTube video: %s", youtubeURL),
 	})
 	return err
 }
