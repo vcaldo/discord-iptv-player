@@ -71,7 +71,7 @@ logInfo("Initializing services...");
 const discordService = new DiscordService();
 const redisService = new RedisService();
 const processManager = new ProcessManager();
-const shutdownHandler = new ShutdownHandler(discordService, redisService);
+const shutdownHandler = new ShutdownHandler(discordService, redisService, processManager); // Updated constructor
 
 // Set up global error handling
 process.on('uncaughtException', (error) => {

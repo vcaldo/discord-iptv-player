@@ -1,19 +1,24 @@
 import { DiscordService } from "../services/discord.js";
 import { RedisService } from "../services/redis.js";
+import { ProcessManager } from "./process-manager.js"; // Added import
+import { logInfo, logError } from "./logger.js"; // Added import for logging
 
 export class ShutdownHandler {
     private services: {
         discord: DiscordService;
         redis: RedisService;
+        processManager: ProcessManager; // Added processManager
     };
 
     constructor(
         discordService: DiscordService,
         redisService: RedisService,
+        processManager: ProcessManager, // Added processManager parameter
     ) {
         this.services = {
             discord: discordService,
             redis: redisService,
+            processManager: processManager, // Initialize processManager
         };
     }
 
@@ -24,22 +29,33 @@ export class ShutdownHandler {
     }
 
     private async gracefulShutdown(signal: string) {
-        console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
+        logInfo(`\nReceived ${signal}. Starting graceful shutdown...`);
 
         try {
+            // Stop playback and clean up resources
+            logInfo('Stopping playback and cleaning up resources...');
+
             // Disconnect from voice channel if connected
             this.services.discord.leaveVoiceChannel();
-            console.log('Disconnected from Discord voice channel');
+            logInfo('Disconnected from Discord voice channel');
+
+            // Kill any running ffmpeg processes
+            await this.services.processManager.killFfmpegProcesses();
+            logInfo('Killed running ffmpeg processes');
+
+            // Set the status back to idle
+            this.services.discord.setIdleStatus();
+            logInfo('Discord status set to idle');
 
             // Disconnect Redis
             this.services.redis.disconnect();
-            console.log('Disconnected from Redis');
+            logInfo('Disconnected from Redis');
 
-            console.log('Graceful shutdown completed');
+            logInfo('Graceful shutdown completed');
             process.exit(0);
         } catch (error) {
-            console.error('Error during graceful shutdown:', error);
+            logError('Error during graceful shutdown:', error);
             process.exit(1);
         }
     }
-} 
+}
