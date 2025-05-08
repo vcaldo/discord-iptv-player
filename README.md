@@ -44,8 +44,8 @@ The project consists of the following components:
 ## Prerequisites
 
 - Docker and Docker Compose (for containerized deployment)
-- Node.js 16+ and npm/bun (for local development)
-- Go 1.19+ (for local development of remote-control)
+- Node.js 20+ and npm/bun (for local development)
+- Go 1.24+ (for local development of remote-control)
 - Redis server (or use the included Docker container)
 - Discord bot token and permissions
 - Discord selfbot token (for streaming capability)
@@ -171,6 +171,7 @@ The Remote Control bot provides the following commands:
 - `/tv <id>` - Start streaming a video by ID (from the playlist)
 - `/stop` - Stop the current video playback
 - `/search <term>` - Search channels in the playlist
+- `/yt <url>` - Stream a YouTube video by URL (ToDo)
 
 ## Contributing
 

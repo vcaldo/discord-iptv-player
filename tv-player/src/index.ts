@@ -72,7 +72,7 @@ logInfo("Shutdown handlers configured");
  * Handles the play command with robust error handling and retries
  */
 async function handlePlay(title: string, url: string) {
-    const playTransaction = newrelic.startWebTransaction('handlePlay', async function() {
+    const playTransaction = newrelic.startWebTransaction('handle-play', async function() {
         try {
             newrelic.addCustomAttribute('videoTitle', title);
             newrelic.addCustomAttribute('videoUrl', url);
