@@ -8,7 +8,7 @@ const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 2000;
 
 export class RedisService {
-    private redis!: Redis;
+    private redis!: Redis; // Using definite assignment assertion
     private isConnected: boolean = false;
     private reconnectAttempts: number = 0;
     private subscriptions: Map<string, (message: RedisMessage) => Promise<void>> = new Map();
@@ -222,7 +222,7 @@ export class RedisService {
                 console.log(`Published message to channel ${channel}, received by ${result} subscriber(s)`);
                 return result > 0;
 
-            } catch (error) {
+            } catch (error: unknown) {
                 attempts++;
                 console.error(`Error publishing to Redis channel (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
 
