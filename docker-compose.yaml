@@ -8,7 +8,6 @@ services:
       - remote-control/.env
     depends_on:
       - redis
-      - tv-player
 
   tv-player:
     build:
