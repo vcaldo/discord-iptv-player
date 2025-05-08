@@ -68,29 +68,35 @@ docker build -t discord-iptv-remote-control .
 
 ## Configuration
 
-The Remote Control component uses environment variables for configuration. Create a `.env` file in the root directory with the following variables:
+The Remote Control component uses environment variables for configuration. For your convenience, you can use the sample env.example file as a template:
 
-```env
-# Discord Bot Configuration
-DISCORD_BOT_TOKEN=your_discord_bot_token
-DISCORD_GUILD_ID=your_discord_guild_id
-DISCORD_VIDEO_CHANNEL_ID=your_discord_video_channel_id
+1. Copy the env.example file to create your own .env file:
+   ```bash
+   cp env.example .env
+   ```
 
-# Redis Configuration
-REDIS_ADDRESS=localhost:6379
-REDIS_PASSWORD=
-REDIS_DB=0
-REDIS_PUB_SUB_CHANNEL=iptv
+2. Edit the .env file and fill in your specific values:
+   ```env
+   # Discord Bot Configuration
+   DISCORD_BOT_TOKEN=your_discord_bot_token
+   DISCORD_GUILD_ID=your_discord_guild_id
+   DISCORD_VIDEO_CHANNEL_ID=your_discord_video_channel_id
 
-# Playlist Configuration
-PLAYLIST_URL=https://example.com/playlist.m3u
-PLAYLIST_NAME=iptv
-PLAYLIST_MAX_AGE_DAYS=10
+   # Redis Configuration
+   REDIS_ADDRESS=localhost:6379
+   REDIS_PASSWORD=
+   REDIS_DB=0
+   REDIS_PUB_SUB_CHANNEL=iptv
 
-# New Relic Monitoring (optional)
-NEW_RELIC_APP_NAME=Discord IPTV Player - Remote Control
-NEW_RELIC_LICENSE_KEY=your_new_relic_license_key
-```
+   # Playlist Configuration
+   PLAYLIST_URL=https://example.com/playlist.m3u
+   PLAYLIST_NAME=iptv
+   PLAYLIST_MAX_AGE_DAYS=10
+
+   # New Relic Monitoring (optional)
+   NEW_RELIC_APP_NAME=Discord IPTV Player - Remote Control
+   NEW_RELIC_LICENSE_KEY=your_new_relic_license_key
+   ```
 
 ### Environment Variables
 

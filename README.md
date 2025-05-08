@@ -59,7 +59,15 @@ The project consists of the following components:
    ```
 
 2. Configure environment:
-   - Copy `.env.example` to `.env` and fill in the required variables
+   - Create environment files for both services:
+     ```bash
+     # For TV Player
+     cp tv-player/.env.example tv-player/.env
+
+     # For Remote Control
+     cp remote-control/env.example remote-control/.env
+     ```
+   - Edit both `.env` files to fill in your specific values
    - Optional: Add IPTV channels to `remote-control/playlist.m3u`
 
 3. Build and start with Docker Compose:
