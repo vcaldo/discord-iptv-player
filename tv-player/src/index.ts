@@ -72,4 +72,4 @@ async function handleMessage({ command, title, url }: RedisMessage) {
     }
 }
 
-redisService.subscribe("tvbarrapesada", handleMessage);
+redisService.subscribe(config.redisPubSubChannel, handleMessage);

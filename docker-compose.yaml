@@ -6,6 +6,19 @@ services:
     restart: unless-stopped
     env_file:
       - remote-control/.env
+    depends_on:
+      - redis
+      - tv-player
+
+  tv-player:
+    build:
+      context: ./tv-player
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - tv-player/.env
+    depends_on:
+      - redis
 
   redis:
     image: redis:7.4

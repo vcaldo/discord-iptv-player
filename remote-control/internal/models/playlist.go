@@ -36,3 +36,10 @@ type YoutubeVideo struct {
 	Url         string `json:"url"`
 	Channel     string `json:"channel"`
 }
+
+// Legacy ChannelCommand struct
+type ChannelCommand struct {
+	Command string `json:"command"`
+	Tittle  string `json:"title"`
+	URL     string `json:"url"`
+}

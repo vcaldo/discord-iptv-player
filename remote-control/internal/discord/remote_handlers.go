@@ -79,12 +79,18 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("channel_id", channelID)
 	txn.AddAttribute("channel_name", channel.Name)
 
-	remoteControlCommand := &models.RemoteControlCommand{
-		Command:   models.TvCommand,
-		TvChannel: channel,
+	// remoteControlCommand := &models.RemoteControlCommand{
+	// 	Command:   "play",
+	// 	TvChannel: channel,
+	// }
+
+	remoteControlCommand := &models.ChannelCommand{
+		Command: "play",
+		Tittle:  channel.Name,
+		URL:     channel.Url,
 	}
 
-	err = b.redis.RemoteControlCommand(config.DiscordGuildID, remoteControlCommand)
+	err = b.redis.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -109,11 +115,16 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
-	remoteControlCommand := &models.RemoteControlCommand{
+	// remoteControlCommand := &models.RemoteControlCommand{
+	// 	Command: models.StopCommand,
+	// }
+
+	remoteControlCommand := &models.ChannelCommand{
 		Command: models.StopCommand,
+		Tittle:  "stop",
 	}
 
-	err := b.redis.RemoteControlCommand(config.DiscordGuildID, remoteControlCommand)
+	err := b.redis.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{

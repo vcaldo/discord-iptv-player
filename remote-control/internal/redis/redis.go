@@ -350,7 +350,7 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 	return channel, err
 }
 
-func (c *Client) RemoteControlCommand(guildID string, command *models.RemoteControlCommand) error {
+func (c *Client) RemoteControlCommand2(guildID string, command *models.RemoteControlCommand) error {
 	return c.instrumentOperation("remote-control-command", func() error {
 		// Get the channel name from the command or use default from config
 		channelName := command.RedisPubSubChannel
@@ -375,6 +375,22 @@ func (c *Client) RemoteControlCommand(guildID string, command *models.RemoteCont
 
 		log.Printf("published remote control command '%s' to channel '%s' for guild %s",
 			command.Command, qualifiedChannel, guildID)
+		return nil
+	})
+}
+
+func (c *Client) RemoteControlCommand(command *models.ChannelCommand) error {
+	return c.instrumentOperation("remote-control-command", func() error {
+		jsonData, err := json.Marshal(command)
+		if err != nil {
+			return fmt.Errorf("failed to marshal remote control command: %w", err)
+		}
+		err = c.rdb.Publish(c.config.RedisPubSubChannel, jsonData).Err()
+		if err != nil {
+			return fmt.Errorf("failed to publish remote control command: %w", err)
+		}
+		log.Printf("published remote control command '%s' to channel '%s'",
+			command.Command, c.config.RedisPubSubChannel)
 		return nil
 	})
 }

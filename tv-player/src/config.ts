@@ -22,6 +22,7 @@ export default {
     redisHost: process.env.REDIS_HOST ?? (() => { throw new Error('REDIS_HOST is required'); })(),
     redisPort: parseInt(process.env.REDIS_PORT ?? (() => { throw new Error('REDIS_PORT is required'); })()),
     redisPassword: process.env.REDIS_PASSWORD ?? (() => { throw new Error('REDIS_PASSWORD is required'); })(),
+    redisPubSubChannel: process.env.REDIS_PUB_SUB_CHANNEL ?? 'iptv',
 }
 
 function parseBoolean(value: string | undefined): boolean {
