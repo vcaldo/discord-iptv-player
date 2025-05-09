@@ -348,37 +348,20 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
-	// Get the playlist
-	getPlaylistSegment := txn.StartSegment("get_playlist")
-	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, config.PlaylistName)
+	// Get categories directly from Redis
+	getSegment := txn.StartSegment("get_categories")
+	categories, err := b.redis.GetCategories(config.DiscordGuildID, config.PlaylistName)
 	if err != nil {
-		getPlaylistSegment.End()
+		getSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error retrieving playlist: %v", err),
+			Content: fmt.Sprintf("error retrieving categories: %v", err),
 		})
 		return msgErr
 	}
-	getPlaylistSegment.End()
-
-	// Extract unique categories
-	extractSegment := txn.StartSegment("extract_categories")
-	categoryMap := make(map[string]struct{})
-	for _, channel := range playlist.Channels {
-		if channel.Category != "" { // Skip empty categories
-			categoryMap[channel.Category] = struct{}{}
-		}
-	}
-
-	// Convert to sorted slice for consistent display
-	var categories []string
-	for category := range categoryMap {
-		categories = append(categories, category)
-	}
-	// Could add a sort here if needed: sort.Strings(categories)
+	getSegment.End()
 
 	txn.AddAttribute("categories_count", len(categories))
-	extractSegment.End()
 
 	if len(categories) == 0 {
 		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -387,11 +370,11 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 		return err
 	}
 
-	// Split results into batches to stay within Discord's 2000 character limit
+	// Format the response
 	formatSegment := txn.StartSegment("format_results")
 	header := fmt.Sprintf("📖  Found **%d** categories:\n\n", len(categories))
 
-	// Send results in batches of approximately 1700 characters (leaving room for headers)
+	// Send results in batches to stay within Discord's 2000 character limit
 	const maxBatchSize = 1700
 	var currentBatch strings.Builder
 	currentBatch.WriteString(header)
@@ -401,7 +384,7 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 	sendSegment := txn.StartSegment("send_results")
 	for idx, category := range categories {
 		// If adding this category would exceed the batch size, send the current batch
-		if currentBatch.Len() > 0 && currentBatch.Len()+len(category)+10 > maxBatchSize { // Add 10 for the code block syntax
+		if currentBatch.Len() > 0 && currentBatch.Len()+len(category)+10 > maxBatchSize {
 			// Close the code block
 			currentBatch.WriteString("```")
 
