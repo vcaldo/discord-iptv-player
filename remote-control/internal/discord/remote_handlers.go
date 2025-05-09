@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/kkdai/youtube/v2"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
@@ -164,17 +163,6 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 	return err
 }
 
-// getYouTubeTitle extracts the title from a YouTube URL
-func getYouTubeTitle(url string) (string, error) {
-	client := youtube.Client{}
-	video, err := client.GetVideo(url)
-	if err != nil {
-		return "", fmt.Errorf("failed to get video info: %w", err)
-	}
-
-	return video.Title, nil
-}
-
 func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-stop-command")
 	defer txn.End()
@@ -254,22 +242,25 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	// Find the maximum length of channel ID for proper alignment
 	prepareSegment := txn.StartSegment("max_id_length")
 	maxIDLength := 0
+	maxCategoryLength := 0
 	for _, channel := range playlist.Channels {
 		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
 			if len(channel.ID) > maxIDLength {
 				maxIDLength = len(channel.ID)
 			}
+			if len(channel.Category) > maxCategoryLength {
+				maxCategoryLength = len(channel.Category)
+			}
 		}
 	}
 	prepareSegment.End()
 
-	// Format string with consistent padding based on the longest ID
-	formatString := "%-" + fmt.Sprintf("%d", maxIDLength) + "s  - %s"
+	formatString := fmt.Sprintf("%%-%ds  |  %%-%ds  |  %%s", maxIDLength, maxCategoryLength)
 
 	for _, channel := range playlist.Channels {
 		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
 			matchingChannels = append(matchingChannels, fmt.Sprintf(formatString,
-				channel.ID, channel.Name))
+				channel.ID, channel.Category, channel.Name))
 		}
 	}
 	searchSegment.End()
