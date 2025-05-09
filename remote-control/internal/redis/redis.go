@@ -94,6 +94,7 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlist.Name)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 		categoriesKey := fmt.Sprintf("%s:categories", playlistKey)
+		categoryCountsKey := fmt.Sprintf("%s:category-counts", playlistKey)
 
 		pipe := c.rdb.Pipeline()
 
@@ -102,12 +103,24 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		pipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
 		pipe.HSet(playlistKey, "length", len(playlist.Channels))
 
-		// Delete existing channels and categories before updating
+		// Delete existing channels, categories, and category counts before updating
 		pipe.Del(channelsKey)
 		pipe.Del(categoriesKey)
+		pipe.Del(categoryCountsKey)
 
-		// Track unique categories
+		// Delete existing category-to-channel mappings
+		// We need to get existing categories first to clean up their mappings
+		existingCategories, err := c.rdb.SMembers(categoriesKey).Result()
+		if err == nil {
+			for _, category := range existingCategories {
+				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, category)
+				pipe.Del(categoryChannelsKey)
+			}
+		}
+
+		// Track unique categories and their channel counts
 		categoriesMap := make(map[string]struct{})
+		categoryCountsMap := make(map[string]int)
 
 		for i, channel := range playlist.Channels {
 			channelIndex := i + 1
@@ -126,6 +139,11 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			// Add category to tracking map if it's not empty
 			if channel.Category != "" {
 				categoriesMap[channel.Category] = struct{}{}
+				categoryCountsMap[channel.Category]++
+
+				// Add channel to category-specific set for easy lookup
+				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, channel.Category)
+				pipe.SAdd(categoryChannelsKey, channelIndex)
 			}
 		}
 
@@ -134,10 +152,15 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			pipe.SAdd(categoriesKey, category)
 		}
 
+		// Store category counts in a hash
+		for category, count := range categoryCountsMap {
+			pipe.HSet(categoryCountsKey, category, count)
+		}
+
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
 		pipe.SAdd(setKey, playlist.Name)
 
-		_, err := pipe.Exec()
+		_, err = pipe.Exec()
 		if err != nil {
 			return fmt.Errorf("failed to store playlist in Redis: %w", err)
 		}
@@ -271,6 +294,8 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 		// Create keys
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+		categoriesKey := fmt.Sprintf("%s:categories", playlistKey)
+		categoryCountsKey := fmt.Sprintf("%s:category-counts", playlistKey)
 
 		// Check if playlist exists
 		exists, err := c.rdb.Exists(playlistKey).Result()
@@ -283,6 +308,15 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 
 		// Use pipeline for better performance
 		pipe := c.rdb.Pipeline()
+
+		// Get all categories to clean up their channel mappings
+		categories, err := c.rdb.SMembers(categoriesKey).Result()
+		if err == nil {
+			for _, category := range categories {
+				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, category)
+				pipe.Del(categoryChannelsKey)
+			}
+		}
 
 		// Get all channel indices before deleting
 		channelIndices, err := c.rdb.SMembers(channelsKey).Result()
@@ -298,6 +332,12 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 
 		// Delete the channels set
 		pipe.Del(channelsKey)
+
+		// Delete the categories set
+		pipe.Del(categoriesKey)
+
+		// Delete the category counts hash
+		pipe.Del(categoryCountsKey)
 
 		// Delete the playlist metadata
 		pipe.Del(playlistKey)
@@ -412,6 +452,122 @@ func (c *Client) GetCategories(guildID string, playlistName string) ([]string, e
 	})
 
 	return categories, err
+}
+
+func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) ([]models.TvChannel, error) {
+	var channels []models.TvChannel
+
+	err := c.instrumentOperation("get-channels-by-category", func() error {
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+		categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, category)
+
+		// Check if playlist exists
+		exists, err := c.rdb.Exists(playlistKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to check if playlist exists: %w", err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+		}
+
+		// Get channel indices for the specified category
+		channelIndices, err := c.rdb.SMembers(categoryChannelsKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve channel indices for category '%s': %w", category, err)
+		}
+
+		// If no channels found for the category
+		if len(channelIndices) == 0 {
+			log.Printf("no channels found for category '%s' in playlist '%s'", category, playlistName)
+			return nil
+		}
+
+		// Retrieve each channel
+		for _, indexStr := range channelIndices {
+			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
+
+			// Get channel data
+			channelData, err := c.rdb.HGetAll(channelKey).Result()
+			if err != nil {
+				log.Printf("Warning: failed to retrieve channel data for index %s: %v", indexStr, err)
+				continue
+			}
+
+			// Create channel object
+			channel := models.TvChannel{
+				Name:     channelData["name"],
+				Url:      channelData["url"],
+				Logo:     channelData["logo"],
+				Category: channelData["category"],
+			}
+
+			// Get ID as string
+			if idStr, ok := channelData["id"]; ok && idStr != "" {
+				channel.ID = idStr
+			}
+
+			// Parse boolean fields
+			if favoriteStr, ok := channelData["favorite"]; ok {
+				channel.Favorite = favoriteStr == "1" || favoriteStr == "true"
+			}
+
+			if enabledStr, ok := channelData["enabled"]; ok {
+				channel.Enabled = enabledStr == "1" || enabledStr == "true"
+			}
+
+			// Add channel to results
+			channels = append(channels, channel)
+		}
+
+		log.Printf("retrieved %d channels for category '%s' in playlist '%s' for guild %s",
+			len(channels), category, playlistName, guildID)
+		return nil
+	})
+
+	return channels, err
+}
+
+func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int, error) {
+	var categoryStats map[string]int
+
+	err := c.instrumentOperation("get-category-stats", func() error {
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		categoryCountsKey := fmt.Sprintf("%s:category-counts", playlistKey)
+
+		// Check if playlist exists
+		exists, err := c.rdb.Exists(playlistKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to check if playlist exists: %w", err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+		}
+
+		// Get all category counts from the hash
+		categoryCountsMap, err := c.rdb.HGetAll(categoryCountsKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve category counts: %w", err)
+		}
+
+		// Convert string counts to integers
+		categoryStats = make(map[string]int, len(categoryCountsMap))
+		for category, countStr := range categoryCountsMap {
+			count, err := strconv.Atoi(countStr)
+			if err != nil {
+				log.Printf("Warning: failed to parse count for category '%s': %v", category, err)
+				categoryStats[category] = 0
+			} else {
+				categoryStats[category] = count
+			}
+		}
+
+		log.Printf("retrieved stats for %d categories from playlist '%s' in guild %s",
+			len(categoryStats), playlistName, guildID)
+		return nil
+	})
+
+	return categoryStats, err
 }
 
 func (c *Client) Close() error {

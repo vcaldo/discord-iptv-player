@@ -3,6 +3,8 @@ package discord
 import (
 	"context"
 	"fmt"
+	"log"
+	"sort"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -36,6 +38,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleSearchCommand(ctx, s, i, config, nrApp)
 	case models.CategoriesCommand:
 		return b.handleCategoriesCommand(ctx, s, i, config, nrApp)
+	case models.SearchInCategoryCommand:
+		return b.handleSearchInCategoryCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -355,11 +359,22 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 		getSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("error retrieving categories: %v", err),
+			Content: fmt.Sprintf("Error retrieving categories: %v", err),
 		})
 		return msgErr
 	}
 	getSegment.End()
+
+	// Get category counts
+	getStatsSegment := txn.StartSegment("get_category_stats")
+	categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, config.PlaylistName)
+	if err != nil {
+		getStatsSegment.End()
+		txn.NoticeError(err)
+		log.Printf("Warning: couldn't retrieve category stats: %v", err)
+		// We'll continue without stats if we couldn't get them
+	}
+	getStatsSegment.End()
 
 	txn.AddAttribute("categories_count", len(categories))
 
@@ -374,6 +389,19 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 	formatSegment := txn.StartSegment("format_results")
 	header := fmt.Sprintf("📖  Found **%d** categories:\n\n", len(categories))
 
+	// Sort categories alphabetically
+	sort.Strings(categories)
+
+	// Find the maximum length of category names for proper alignment
+	maxCategoryLength := 0
+	for _, category := range categories {
+		if len(category) > maxCategoryLength {
+			maxCategoryLength = len(category)
+		}
+	}
+
+	formatString := fmt.Sprintf("%%-%ds  %%5d channels", maxCategoryLength)
+
 	// Send results in batches to stay within Discord's 2000 character limit
 	const maxBatchSize = 1700
 	var currentBatch strings.Builder
@@ -383,8 +411,19 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 
 	sendSegment := txn.StartSegment("send_results")
 	for idx, category := range categories {
+		// Get the count for this category, default to 0 if not found
+		count := 0
+		if categoryStats != nil {
+			if c, ok := categoryStats[category]; ok {
+				count = c
+			}
+		}
+
+		// Format the category entry with count
+		categoryEntry := fmt.Sprintf(formatString, category, count)
+
 		// If adding this category would exceed the batch size, send the current batch
-		if currentBatch.Len() > 0 && currentBatch.Len()+len(category)+10 > maxBatchSize {
+		if currentBatch.Len() > 0 && currentBatch.Len()+len(categoryEntry)+10 > maxBatchSize {
 			// Close the code block
 			currentBatch.WriteString("```")
 
@@ -411,10 +450,142 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 		}
 
 		// Add the category to the current batch
-		currentBatch.WriteString(fmt.Sprintf("- %s\n", category))
+		currentBatch.WriteString(categoryEntry)
+		currentBatch.WriteString("\n")
 	}
 
 	// Send any remaining categories in the final batch
+	if currentBatch.Len() > 0 {
+		// Close the code block
+		currentBatch.WriteString("```")
+
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: currentBatch.String(),
+		})
+		if err != nil {
+			txn.NoticeError(err)
+		}
+	}
+	sendSegment.End()
+
+	return err
+}
+
+func (b *Bot) handleSearchInCategoryCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-search-in-category-command")
+	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	parseSegment := txn.StartSegment("parse_options")
+	options := i.ApplicationCommandData().Options
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
+	}
+
+	var category string
+	if opt, ok := optionMap["category"]; ok {
+		category = opt.StringValue()
+	} else {
+		parseSegment.End()
+		// Use followup message since we already acknowledged the interaction
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "Please specify a category to search in",
+		})
+		return err
+	}
+	parseSegment.End()
+
+	// Get channels for the specified category
+	getChannelsSegment := txn.StartSegment("get_channels_by_category")
+	channels, err := b.redis.GetChannelsByCategory(config.DiscordGuildID, config.PlaylistName, category)
+	if err != nil {
+		getChannelsSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error retrieving channels for category '%s': %v", category, err),
+		})
+		return msgErr
+	}
+	getChannelsSegment.End()
+
+	txn.AddAttribute("category", category)
+	txn.AddAttribute("channels_count", len(channels))
+
+	if len(channels) == 0 {
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("📂 No channels found in category `%s`", category),
+		})
+		return err
+	}
+
+	// Format the results
+	formatSegment := txn.StartSegment("format_results")
+	header := fmt.Sprintf("📂 Found **%d** channels in category `%s`:\n\n", len(channels), category)
+
+	// Sort channels by name for better readability
+	sort.Slice(channels, func(i, j int) bool {
+		return channels[i].Name < channels[j].Name
+	})
+
+	// Find maximum ID length for proper alignment
+	maxIDLength := 0
+	for _, channel := range channels {
+		if len(channel.ID) > maxIDLength {
+			maxIDLength = len(channel.ID)
+		}
+	}
+
+	formatString := fmt.Sprintf("%%-%ds - %%s", maxIDLength)
+
+	// Send results in batches to stay within Discord's 2000 character limit
+	const maxBatchSize = 1700
+	var currentBatch strings.Builder
+	currentBatch.WriteString(header)
+	currentBatch.WriteString("```\n") // Start code block
+	formatSegment.End()
+
+	sendSegment := txn.StartSegment("send_results")
+	for idx, channel := range channels {
+		channelEntry := fmt.Sprintf(formatString, channel.ID, channel.Name)
+
+		// If adding this channel would exceed the batch size, send the current batch
+		if currentBatch.Len() > 0 && currentBatch.Len()+len(channelEntry)+10 > maxBatchSize {
+			// Close the code block
+			currentBatch.WriteString("```")
+
+			// Send the current batch
+			_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: currentBatch.String(),
+			})
+			if err != nil {
+				txn.NoticeError(err)
+				sendSegment.End()
+				return err
+			}
+
+			// Start a new batch
+			currentBatch.Reset()
+
+			// If this isn't the first channel, add a continuation header
+			if idx > 0 {
+				currentBatch.WriteString(fmt.Sprintf("Channels in category `%s` (continued):\n\n", category))
+			}
+
+			// Start new code block
+			currentBatch.WriteString("```\n")
+		}
+
+		// Add the channel to the current batch
+		currentBatch.WriteString(channelEntry)
+		currentBatch.WriteString("\n")
+	}
+
+	// Send any remaining channels in the final batch
 	if currentBatch.Len() > 0 {
 		// Close the code block
 		currentBatch.WriteString("```")

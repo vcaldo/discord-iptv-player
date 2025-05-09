@@ -60,8 +60,16 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			Description: "Get the list of categories",
 		},
 		{
-			Name:        models.SearchCategoryCommand,
+			Name:        models.SearchInCategoryCommand,
 			Description: "Search channels in a category",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "category",
+					Description: "The category to search in",
+					Required:    true,
+				},
+			},
 		},
 		{
 			Name:        models.SearchCommand,
