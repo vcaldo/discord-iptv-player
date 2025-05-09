@@ -1,8 +1,9 @@
 package models
 
 const (
-	PlayCommand   string = "play"
-	StopCommand   string = "stop"
-	TvCommand     string = "tv"
-	SearchCommand string = "search"
+	PlayCommand    string = "play"
+	TvCommand      string = "tv"
+	YoutubeCommand string = "yt"
+	StopCommand    string = "stop"
+	SearchCommand  string = "search"
 )
