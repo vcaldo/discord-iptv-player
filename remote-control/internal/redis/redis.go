@@ -93,6 +93,7 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 	return c.instrumentOperation("store-playlist", func() error {
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlist.Name)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+		categoriesKey := fmt.Sprintf("%s:categories", playlistKey)
 
 		pipe := c.rdb.Pipeline()
 
@@ -101,7 +102,12 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		pipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
 		pipe.HSet(playlistKey, "length", len(playlist.Channels))
 
+		// Delete existing channels and categories before updating
 		pipe.Del(channelsKey)
+		pipe.Del(categoriesKey)
+
+		// Track unique categories
+		categoriesMap := make(map[string]struct{})
 
 		for i, channel := range playlist.Channels {
 			channelIndex := i + 1
@@ -116,6 +122,16 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			pipe.HSet(channelKey, "enabled", channel.Enabled)
 
 			pipe.SAdd(channelsKey, channelIndex)
+
+			// Add category to tracking map if it's not empty
+			if channel.Category != "" {
+				categoriesMap[channel.Category] = struct{}{}
+			}
+		}
+
+		// Store all unique categories in a separate set
+		for category := range categoriesMap {
+			pipe.SAdd(categoriesKey, category)
 		}
 
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
@@ -126,8 +142,8 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			return fmt.Errorf("failed to store playlist in Redis: %w", err)
 		}
 
-		log.Printf("playlist '%s' stored successfully for guild %s with %d channels",
-			playlist.Name, guildID, len(playlist.Channels))
+		log.Printf("playlist '%s' stored successfully for guild %s with %d channels and %d categories",
+			playlist.Name, guildID, len(playlist.Channels), len(categoriesMap))
 		return nil
 	})
 }
@@ -366,6 +382,36 @@ func (c *Client) RemoteControlCommand(command *models.RemoteControlCommand) erro
 			command.Command, c.config.RedisPubSubChannel)
 		return nil
 	})
+}
+
+func (c *Client) GetCategories(guildID string, playlistName string) ([]string, error) {
+	var categories []string
+
+	err := c.instrumentOperation("get-categories-from-set", func() error {
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		categoriesKey := fmt.Sprintf("%s:categories", playlistKey)
+
+		exists, err := c.rdb.Exists(playlistKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to check if playlist exists: %w", err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+		}
+
+		// Directly get categories from the set we created
+		categories, err = c.rdb.SMembers(categoriesKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve categories: %w", err)
+		}
+
+		log.Printf("retrieved %d categories from set for playlist '%s' in guild %s",
+			len(categories), playlistName, guildID)
+
+		return nil
+	})
+
+	return categories, err
 }
 
 func (c *Client) Close() error {
