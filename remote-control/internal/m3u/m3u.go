@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
+	"regexp"
 	"strings"
 	"time"
 
@@ -202,28 +202,32 @@ func extractAttributes(ctx context.Context, s string) map[string]string {
 
 	attributes := make(map[string]string)
 
-	// Find all attribute patterns like key="value" or key='value'
-	parts := strings.Split(s, " ")
-	for _, part := range parts {
-		// Check if it's an attribute
-		if strings.Contains(part, "=") {
-			keyVal := strings.SplitN(part, "=", 2)
-			if len(keyVal) == 2 {
-				key := strings.TrimSpace(keyVal[0])
-				value := strings.TrimSpace(keyVal[1])
+	// Regular expression to find attributes, handling quoted values with spaces
+	attributePattern := regexp.MustCompile(`([a-zA-Z0-9-]+)=("([^"]*)"|'([^']*)'|[^ ]*)`)
+	matches := attributePattern.FindAllStringSubmatch(s, -1)
 
-				// Remove quotes if present
-				if len(value) >= 2 && (value[0] == '"' && value[len(value)-1] == '"' ||
-					value[0] == '\'' && value[len(value)-1] == '\'') {
-					value = value[1 : len(value)-1]
-				}
+	for _, match := range matches {
+		key := match[1]
+		var value string
 
-				attributes[key] = value
+		// Check which capture group has the value (quoted or unquoted)
+		if match[3] != "" {
+			// Double-quoted value
+			value = match[3]
+		} else if match[4] != "" {
+			// Single-quoted value
+			value = match[4]
+		} else {
+			// Unquoted value
+			value = match[2]
+			// Remove quotes if present for unquoted pattern
+			if len(value) >= 2 && (value[0] == '"' && value[len(value)-1] == '"' ||
+				value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
 			}
-		} else if _, err := strconv.ParseFloat(part, 64); err == nil {
-			// This is the duration part, we can ignore it
-			continue
 		}
+
+		attributes[key] = value
 	}
 
 	return attributes

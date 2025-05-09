@@ -98,7 +98,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 
 	// Use followup message since we already acknowledged the interaction
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("Starting to play channel: %s", channel.Name),
+		Content: fmt.Sprintf("Playing channel: %s - %s", channel.ID, channel.Name),
 	})
 	return err
 }
@@ -158,7 +158,7 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 
 	// Use followup message since we already acknowledged the interaction
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("Starting to play YouTube video: %s (%s)", title, youtubeURL),
+		Content: fmt.Sprintf("Playing YouTube video: %s (%s)", title, youtubeURL),
 	})
 	return err
 }
@@ -255,7 +255,7 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	}
 	prepareSegment.End()
 
-	formatString := fmt.Sprintf("%%-%ds  |  %%-%ds  |  %%s", maxIDLength, maxCategoryLength)
+	formatString := fmt.Sprintf("%%-%ds - %%-%ds - %%s", maxIDLength, maxCategoryLength)
 
 	for _, channel := range playlist.Channels {
 		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {

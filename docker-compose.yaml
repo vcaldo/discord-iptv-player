@@ -26,8 +26,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    depends_on:
-      - redis
 
   redis:
     image: redis:7.4
