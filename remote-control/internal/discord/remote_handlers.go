@@ -34,6 +34,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleStopCommand(ctx, s, i, config, nrApp)
 	case models.SearchCommand:
 		return b.handleSearchCommand(ctx, s, i, config, nrApp)
+	case models.CategoriesCommand:
+		return b.handleCategoriesCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -321,6 +323,115 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	}
 
 	// Send any remaining channels in the final batch
+	if currentBatch.Len() > 0 {
+		// Close the code block
+		currentBatch.WriteString("```")
+
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: currentBatch.String(),
+		})
+		if err != nil {
+			txn.NoticeError(err)
+		}
+	}
+	sendSegment.End()
+
+	return err
+}
+
+func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-categories-command")
+	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	// Get the playlist
+	getPlaylistSegment := txn.StartSegment("get_playlist")
+	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, config.PlaylistName)
+	if err != nil {
+		getPlaylistSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error retrieving playlist: %v", err),
+		})
+		return msgErr
+	}
+	getPlaylistSegment.End()
+
+	// Extract unique categories
+	extractSegment := txn.StartSegment("extract_categories")
+	categoryMap := make(map[string]struct{})
+	for _, channel := range playlist.Channels {
+		if channel.Category != "" { // Skip empty categories
+			categoryMap[channel.Category] = struct{}{}
+		}
+	}
+
+	// Convert to sorted slice for consistent display
+	var categories []string
+	for category := range categoryMap {
+		categories = append(categories, category)
+	}
+	// Could add a sort here if needed: sort.Strings(categories)
+
+	txn.AddAttribute("categories_count", len(categories))
+	extractSegment.End()
+
+	if len(categories) == 0 {
+		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "No categories found in the playlist.",
+		})
+		return err
+	}
+
+	// Split results into batches to stay within Discord's 2000 character limit
+	formatSegment := txn.StartSegment("format_results")
+	header := fmt.Sprintf("📖  Found **%d** categories:\n\n", len(categories))
+
+	// Send results in batches of approximately 1700 characters (leaving room for headers)
+	const maxBatchSize = 1700
+	var currentBatch strings.Builder
+	currentBatch.WriteString(header)
+	currentBatch.WriteString("```\n") // Start code block
+	formatSegment.End()
+
+	sendSegment := txn.StartSegment("send_results")
+	for idx, category := range categories {
+		// If adding this category would exceed the batch size, send the current batch
+		if currentBatch.Len() > 0 && currentBatch.Len()+len(category)+10 > maxBatchSize { // Add 10 for the code block syntax
+			// Close the code block
+			currentBatch.WriteString("```")
+
+			// Send the current batch
+			_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: currentBatch.String(),
+			})
+			if err != nil {
+				txn.NoticeError(err)
+				sendSegment.End()
+				return err
+			}
+
+			// Start a new batch
+			currentBatch.Reset()
+
+			// If this isn't the first category, add a continuation header
+			if idx > 0 {
+				currentBatch.WriteString("Categories (continued):\n\n")
+			}
+
+			// Start new code block
+			currentBatch.WriteString("```\n")
+		}
+
+		// Add the category to the current batch
+		currentBatch.WriteString(fmt.Sprintf("- %s\n", category))
+	}
+
+	// Send any remaining categories in the final batch
 	if currentBatch.Len() > 0 {
 		// Close the code block
 		currentBatch.WriteString("```")
