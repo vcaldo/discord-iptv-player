@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/kkdai/youtube/v2"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
@@ -130,7 +131,18 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 
 	txn.AddAttribute("youtube_url", youtubeURL)
 
-	title := "YouTube Video"
+	// Extract title from YouTube URL
+	titleSegment := txn.StartSegment("youtube_title_extraction")
+	title, err := getYouTubeTitle(youtubeURL)
+	if err != nil {
+		txn.NoticeError(err)
+		// Fall back to generic title if extraction fails
+		title = "YouTube Video"
+		txn.AddAttribute("title_extraction_failed", true)
+	} else {
+		txn.AddAttribute("video_title", title)
+	}
+	titleSegment.End()
 
 	remoteControlCommand := &models.RemoteControlCommand{
 		Command: models.PlayCommand,
@@ -138,7 +150,7 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 		Url:     youtubeURL,
 	}
 
-	err := b.redis.RemoteControlCommand(remoteControlCommand)
+	err = b.redis.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -149,9 +161,20 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 
 	// Use followup message since we already acknowledged the interaction
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("Starting to play YouTube video: %s", youtubeURL),
+		Content: fmt.Sprintf("Starting to play YouTube video: %s (%s)", title, youtubeURL),
 	})
 	return err
+}
+
+// getYouTubeTitle extracts the title from a YouTube URL
+func getYouTubeTitle(url string) (string, error) {
+	client := youtube.Client{}
+	video, err := client.GetVideo(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to get video info: %w", err)
+	}
+
+	return video.Title, nil
 }
 
 func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
