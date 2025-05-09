@@ -56,6 +56,10 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			Description: "Stop currently playing TV channel",
 		},
 		{
+			Name:        models.CategoriesCommand,
+			Description: "Get the list of categories",
+		},
+		{
 			Name:        models.SearchCommand,
 			Description: "Search for TV channels by name",
 			Options: []*discordgo.ApplicationCommandOption{
