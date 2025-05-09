@@ -131,12 +131,10 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 
 	txn.AddAttribute("youtube_url", youtubeURL)
 
-	// Extract title from YouTube URL
 	titleSegment := txn.StartSegment("youtube_title_extraction")
 	title, err := getYouTubeTitle(youtubeURL)
 	if err != nil {
 		txn.NoticeError(err)
-		// Fall back to generic title if extraction fails
 		title = "YouTube Video"
 		txn.AddAttribute("title_extraction_failed", true)
 	} else {
