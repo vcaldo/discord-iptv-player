@@ -185,7 +185,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 				}
 
 				// Format the display name with channel count
-				displayName := fmt.Sprintf("%s (%d channels)", category, count)
+				displayName := fmt.Sprintf("%s - (%d channels)", category, count)
 
 				choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
 					Name:  displayName,
