@@ -518,14 +518,14 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 
 	if len(channels) == 0 {
 		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("📂 No channels found in category `%s`", category),
+			Content: fmt.Sprintf("📂  No channels found in category `%s`", category),
 		})
 		return err
 	}
 
 	// Format the results
 	formatSegment := txn.StartSegment("format_results")
-	header := fmt.Sprintf("📂 Found **%d** channels in category `%s`:\n\n", len(channels), category)
+	header := fmt.Sprintf("📂  Found **%d** channels in category `%s`:\n\n", len(channels), category)
 
 	// Sort channels by name for better readability
 	sort.Slice(channels, func(i, j int) bool {
