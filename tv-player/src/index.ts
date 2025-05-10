@@ -71,13 +71,17 @@ logInfo("Shutdown handlers configured");
 /**
  * Handles the play command with robust error handling and retries
  */
-async function handlePlay(title: string, url: string) {
+async function handlePlay(title: string, url: string, xcode_username?: string, xcode_password?: string) {
     const playTransaction = newrelic.startWebTransaction('handle-play', async function() {
         try {
             newrelic.addCustomAttribute('videoTitle', title);
             newrelic.addCustomAttribute('videoUrl', url);
+            if (xcode_username) newrelic.addCustomAttribute('has_xcode_credentials', true);
 
-            logInfo(`Attempting to play "${title}"`, { url });
+            logInfo(`Attempting to play "${title}"`, {
+                url,
+                hasXcodeCredentials: !!xcode_username
+            });
 
             if (!discordService.isReady()) {
                 logWarn('Discord client not ready. Cannot play at the moment.');
@@ -93,15 +97,64 @@ async function handlePlay(title: string, url: string) {
             try {
                 await newrelic.startSegment('resolve-video-url', true, async () => {
                     logDebug('Resolving video URL...', { originalUrl: url });
-                    videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
+
+                    // Handle YouTube links with the YouTube resolver
+                    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                        videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
+                    } else {
+                        // For other URLs, check if we need to handle xcode authentication
+                        if (xcode_username && xcode_password) {
+                            // Check if URL already contains credentials
+                            if (!url.includes('@')) {
+                                // Parse the URL
+                                try {
+                                    const urlObj = new URL(url);
+
+                                    // Add xcode credentials to the URL
+                                    urlObj.username = encodeURIComponent(xcode_username);
+                                    urlObj.password = encodeURIComponent(xcode_password);
+
+                                    videoUrl = urlObj.toString();
+                                    logDebug('Added xcode credentials to URL');
+                                } catch (urlError) {
+                                    logError('Failed to parse URL for adding xcode credentials:', urlError);
+                                    videoUrl = url; // Fall back to original URL
+                                }
+                            } else {
+                                // URL already has credentials
+                                videoUrl = url;
+                                logDebug('URL already contains credentials');
+                            }
+                        } else {
+                            videoUrl = url;
+                        }
+                    }
+
                     logInfo(`Resolved video URL successfully`);
-                    logDebug(`Video URL details`, { url: videoUrl });
+                    logDebug(`Video URL details`, {
+                        url: videoUrl.substring(0, videoUrl.indexOf('://') + 3) + '***' // Log only protocol for privacy
+                    });
                 });
             } catch (error) {
                 newrelic.noticeError(error);
                 logError('Failed to resolve video URL, using original as fallback:', error);
-                videoUrl = url;
-                logInfo(`Using original URL as fallback: ${videoUrl}`);
+
+                // If we have xcode credentials but couldn't resolve properly, still try to add them
+                if (xcode_username && xcode_password && !url.includes('@')) {
+                    try {
+                        const urlObj = new URL(url);
+                        urlObj.username = encodeURIComponent(xcode_username);
+                        urlObj.password = encodeURIComponent(xcode_password);
+                        videoUrl = urlObj.toString();
+                        logDebug('Added xcode credentials to fallback URL');
+                    } catch (urlError) {
+                        videoUrl = url;
+                    }
+                } else {
+                    videoUrl = url;
+                }
+
+                logInfo(`Using modified URL as fallback`);
             }
 
             // Only join voice channel if not already in one
@@ -270,15 +323,17 @@ async function handleStop() {
 async function handleMessage(message: RedisMessage) {
     return newrelic.startBackgroundTransaction('handle-message', 'Redis', async function() {
         try {
-            const { command, title, url } = message;
+            const { command, title, url, xcode_username, xcode_password } = message;
 
             newrelic.addCustomAttribute('command', command || 'none');
             if (title) newrelic.addCustomAttribute('title', title);
             if (url) newrelic.addCustomAttribute('url', url);
+            if (xcode_username) newrelic.addCustomAttribute('has_xcode_credentials', true);
 
             logInfo(`Received command: ${command}`, {
                 channel: title || 'N/A',
-                url: url || 'N/A'
+                url: url || 'N/A',
+                hasXcodeCredentials: !!xcode_username
             });
 
             if (!command) {
@@ -295,7 +350,7 @@ async function handleMessage(message: RedisMessage) {
                         });
                         return;
                     }
-                    await handlePlay(title, url);
+                    await handlePlay(title, url, xcode_username, xcode_password);
                     break;
 
                 case "stop":
