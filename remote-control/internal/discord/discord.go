@@ -2,12 +2,15 @@ package discord
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
@@ -61,6 +64,17 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 			}
 
 			cmdTxn.End()
+		} else if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+			autocompleteTxn := nrApp.StartTransaction("discord:autocomplete")
+			autocompleteCtx := newrelic.NewContext(ctx, autocompleteTxn)
+
+			err := b.handleAutocomplete(autocompleteCtx, s, i, config, nrApp)
+			if err != nil {
+				autocompleteTxn.NoticeError(err)
+				log.Printf("error handling autocomplete: %v", err)
+			}
+
+			autocompleteTxn.End()
 		}
 	})
 
@@ -90,4 +104,116 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 	}
 
 	return closeErr
+}
+
+// handleAutocomplete handles autocomplete interactions for Discord slash commands
+func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-autocomplete")
+	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	data := i.ApplicationCommandData()
+
+	txn.AddAttribute("command_name", data.Name)
+
+	// Handle different commands with autocomplete options
+	switch data.Name {
+	case models.ListChannelsinCategoryCommand:
+		// Find the focused option (the one user is currently typing in)
+		var focused *discordgo.ApplicationCommandInteractionDataOption
+		var focusedValue string
+
+		for _, opt := range data.Options {
+			if opt.Focused {
+				focused = opt
+				focusedValue = opt.StringValue()
+				break
+			}
+		}
+
+		if focused == nil || focused.Name != "category" {
+			return nil // Not the option we're handling
+		}
+
+		txn.AddAttribute("input_value", focusedValue)
+
+		// Get categories from Redis
+		getSegment := txn.StartSegment("get_categories")
+		categories, err := b.redis.GetCategories(config.DiscordGuildID, config.PlaylistName)
+		if err != nil {
+			getSegment.End()
+			txn.NoticeError(err)
+			return err
+		}
+		getSegment.End()
+
+		// Get category stats to show channel counts
+		getStatsSegment := txn.StartSegment("get_category_stats")
+		categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, config.PlaylistName)
+		if err != nil {
+			getStatsSegment.End()
+			txn.NoticeError(err)
+			log.Printf("Warning: couldn't retrieve category stats: %v", err)
+			// Continue without stats if we couldn't get them
+		}
+		getStatsSegment.End()
+
+		// Filter categories based on user input
+		filterSegment := txn.StartSegment("filter_categories")
+		var choices []*discordgo.ApplicationCommandOptionChoice
+
+		// Lowercase the input for case-insensitive matching
+		focusedValueLower := strings.ToLower(focusedValue)
+
+		// Add matching categories to choices (limit to 25 as per Discord's limit)
+		maxChoices := 25
+		for _, category := range categories {
+			// If we have 25 choices already, stop processing
+			if len(choices) >= maxChoices {
+				break
+			}
+
+			// Only add if it matches the user's input (empty input matches all)
+			if focusedValue == "" || strings.Contains(strings.ToLower(category), focusedValueLower) {
+				// Get channel count for this category
+				count := 0
+				if categoryStats != nil {
+					if c, ok := categoryStats[category]; ok {
+						count = c
+					}
+				}
+
+				// Format the display name with channel count
+				displayName := fmt.Sprintf("%s (%d channels)", category, count)
+
+				choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
+					Name:  displayName,
+					Value: category, // Still use the actual category name as the value
+				})
+			}
+		}
+		filterSegment.End()
+
+		txn.AddAttribute("choices_count", len(choices))
+
+		// Respond with choices
+		respondSegment := txn.StartSegment("send_response")
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+			Data: &discordgo.InteractionResponseData{
+				Choices: choices,
+			},
+		})
+		respondSegment.End()
+
+		if err != nil {
+			txn.NoticeError(err)
+			return err
+		}
+
+		return nil
+	}
+
+	return nil
 }
