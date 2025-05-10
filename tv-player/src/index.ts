@@ -91,7 +91,8 @@ async function handlePlay(title: string, url: string, xcode_username?: string, x
             // Stop any current stream but don't leave the voice channel
             logInfo('Stopping any existing stream without leaving voice channel...');
             await stopStreamOnly();
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Increase wait time for Raspberry Pi to fully stop previous stream
+            await new Promise(resolve => setTimeout(resolve, 2000));
 
             let videoUrl: string;
             try {
@@ -235,22 +236,23 @@ async function stopStreamOnly() {
 
             logInfo("Successfully stopped stream playback");
 
-            logDebug("Waiting 100ms after stop stream command...");
-            await new Promise(resolve => setTimeout(resolve, 100));
+            logDebug("Waiting 1500ms after stop stream command...");
+            await new Promise(resolve => setTimeout(resolve, 1500));
         } catch (error) {
             newrelic.noticeError(error);
             logError("Error while stopping stream playback:", error);
 
             try {
                 logInfo("Attempting to stop stream playback again after delay...");
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // Increase retry wait time for Raspberry Pi
+                await new Promise(resolve => setTimeout(resolve, 2000));
 
                 await processManager.killFfmpegProcesses();
                 discordService.setIdleStatus();
 
                 logInfo("Successfully stopped stream playback (second attempt)");
-                logDebug("Waiting 100ms after stop stream retry...");
-                await new Promise(resolve => setTimeout(resolve, 100));
+                logDebug("Waiting 1500ms after stop stream retry...");
+                await new Promise(resolve => setTimeout(resolve, 1500));
             } catch (retryError) {
                 newrelic.noticeError(retryError);
                 logError("Failed to stop stream playback after retry:", retryError);
@@ -285,23 +287,24 @@ async function handleStop() {
 
             logInfo("Successfully stopped playing");
 
-            logDebug("Waiting 100ms after stop command...");
-            await new Promise(resolve => setTimeout(resolve, 100));
+            logDebug("Waiting 1500ms after stop command...");
+            await new Promise(resolve => setTimeout(resolve, 1500));
         } catch (error) {
             newrelic.noticeError(error);
             logError("Error while stopping playback:", error);
 
             try {
                 logInfo("Attempting to stop playback again after delay...");
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                // Increase retry wait time for Raspberry Pi
+                await new Promise(resolve => setTimeout(resolve, 3000));
 
                 discordService.leaveVoiceChannel();
                 await processManager.killFfmpegProcesses();
                 discordService.setIdleStatus();
 
                 logInfo("Successfully stopped playing (second attempt)");
-                logDebug("Waiting 100ms after stop command retry...");
-                await new Promise(resolve => setTimeout(resolve, 100));
+                logDebug("Waiting 1500ms after stop command retry...");
+                await new Promise(resolve => setTimeout(resolve, 1500));
             } catch (retryError) {
                 newrelic.noticeError(retryError);
                 logError("Failed to stop playback after retry:", retryError);
