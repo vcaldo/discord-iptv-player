@@ -88,9 +88,11 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("channel_name", channel.Name)
 
 	remoteControlCommand := &models.RemoteControlCommand{
-		Command: models.PlayCommand,
-		Title:   channel.Name,
-		Url:     channel.Url,
+		Command:       models.PlayCommand,
+		Title:         channel.Name,
+		Url:           channel.Url,
+		XcodeUsername: channel.XcodeUsername,
+		XcodePassword: channel.XcodePassword,
 	}
 
 	err = b.redis.RemoteControlCommand(remoteControlCommand)
