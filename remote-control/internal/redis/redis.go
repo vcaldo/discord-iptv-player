@@ -484,13 +484,26 @@ func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) (
 		}
 
 		// Retrieve each channel
-		for _, indexStr := range channelIndices {
-			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
+		// Use a Redis pipeline to batch HGetAll commands
+		pipe := c.rdb.Pipeline()
+		cmds := make([]*redis.StringStringMapCmd, len(channelIndices))
 
-			// Get channel data
-			channelData, err := c.rdb.HGetAll(channelKey).Result()
+		for i, indexStr := range channelIndices {
+			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
+			cmds[i] = pipe.HGetAll(channelKey)
+		}
+
+		// Execute the pipeline
+		_, err = pipe.Exec()
+		if err != nil {
+			return fmt.Errorf("failed to execute Redis pipeline: %w", err)
+		}
+
+		// Process the results
+		for i, cmd := range cmds {
+			channelData, err := cmd.Result()
 			if err != nil {
-				log.Printf("Warning: failed to retrieve channel data for index %s: %v", indexStr, err)
+				log.Printf("Warning: failed to retrieve channel data for index %s: %v", channelIndices[i], err)
 				continue
 			}
 
