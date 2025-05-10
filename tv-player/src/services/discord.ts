@@ -88,6 +88,18 @@ export class DiscordService {
         return this.connectionManager.isConnected();
     }
 
+    public isInVoiceChannel(): boolean {
+        return newrelic.startSegment('check-in-voice-channel', true, () => {
+            return this.streamService.isInVoiceChannel();
+        });
+    }
+
+    public getCurrentVoiceConnection(): MediaUdp | null {
+        return newrelic.startSegment('get-current-voice-connection', true, () => {
+            return this.streamService.getCurrentVoiceConnection();
+        });
+    }
+
     public shutdown(): void {
         return newrelic.startBackgroundTransaction('discord:shutdown-service', () => {
             this.logger.log('Shutting down Discord service...');

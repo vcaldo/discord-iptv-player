@@ -84,8 +84,9 @@ async function handlePlay(title: string, url: string) {
                 return;
             }
 
-            logInfo('Stopping any existing stream...');
-            await handleStop();
+            // Stop any current stream but don't leave the voice channel
+            logInfo('Stopping any existing stream without leaving voice channel...');
+            await stopStreamOnly();
             await new Promise(resolve => setTimeout(resolve, 500));
 
             let videoUrl: string;
@@ -103,35 +104,113 @@ async function handlePlay(title: string, url: string) {
                 logInfo(`Using original URL as fallback: ${videoUrl}`);
             }
 
-            logInfo('Joining voice channel...');
-            await newrelic.startSegment('join-voice-channel', true, async () => {
-                const streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-                logInfo('Successfully joined voice channel');
+            // Only join voice channel if not already in one
+            let streamUdpConn;
+            const inVoiceChannel = discordService.isInVoiceChannel();
 
-                logInfo(`Setting watching status to "${title}"`);
-                discordService.setWatchingStatus(title);
-
-                logInfo('Starting video stream...');
-                await newrelic.startSegment('start-streaming', true, async () => {
-                    await discordService.startStreaming(videoUrl, streamUdpConn);
+            if (!inVoiceChannel) {
+                logInfo('Not in voice channel, joining now...');
+                await newrelic.startSegment('join-voice-channel', true, async () => {
+                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                    logInfo('Successfully joined voice channel');
                 });
-                logInfo(`Successfully playing "${title}"`);
+            } else {
+                logInfo('Already in voice channel, reusing connection...');
+                streamUdpConn = discordService.getCurrentVoiceConnection();
+                if (!streamUdpConn) {
+                    logWarn('No existing voice connection found, joining channel again...');
+                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                    logInfo('Successfully joined voice channel');
+                }
+            }
+
+            logInfo(`Setting watching status to "${title}"`);
+            discordService.setWatchingStatus(title);
+
+            logInfo('Starting video stream...');
+            await newrelic.startSegment('start-streaming', true, async () => {
+                await discordService.startStreaming(videoUrl, streamUdpConn);
             });
+
+            // Verify we're still in the voice channel after streaming
+            if (!discordService.isInVoiceChannel()) {
+                logWarn('Voice channel connection lost after streaming, attempting to reconnect...');
+                await newrelic.startSegment('reconnect-voice-channel', true, async () => {
+                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                    logInfo('Successfully reconnected to voice channel');
+                });
+            }
+
+            logInfo(`Successfully playing "${title}"`);
 
         } catch (error) {
             newrelic.noticeError(error);
             logError(`Error during play operation for "${title}":`, error);
 
-            try {
+            // If error is critical, then stop completely - otherwise try to keep the connection
+            const isCriticalError = error instanceof Error &&
+                (error.message.includes('Guild not found') ||
+                 error.message.includes('Discord client not ready'));
+
+            if (isCriticalError) {
+                logWarn('Critical error detected, stopping playback completely');
                 await handleStop();
-            } catch (cleanupError) {
-                newrelic.noticeError(cleanupError);
-                logError('Error during cleanup after play failure:', cleanupError);
+            } else {
+                logInfo('Non-critical error, just stopping stream without leaving channel');
+                await stopStreamOnly();
             }
         }
     });
 
     return playTransaction;
+}
+
+/**
+ * Stops only the current stream without leaving the voice channel
+ */
+async function stopStreamOnly() {
+    return newrelic.startWebTransaction('handle-stop-stream-only', async function() {
+        try {
+            logInfo("Stopping stream playback without leaving voice channel...");
+
+            await newrelic.startSegment('kill-ffmpeg-processes', true, async () => {
+                logInfo("Killing any running ffmpeg processes...");
+                await processManager.killFfmpegProcesses();
+            });
+
+            discordService.setIdleStatus();
+
+            logInfo("Successfully stopped stream playback");
+
+            logDebug("Waiting 100ms after stop stream command...");
+            await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (error) {
+            newrelic.noticeError(error);
+            logError("Error while stopping stream playback:", error);
+
+            try {
+                logInfo("Attempting to stop stream playback again after delay...");
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                await processManager.killFfmpegProcesses();
+                discordService.setIdleStatus();
+
+                logInfo("Successfully stopped stream playback (second attempt)");
+                logDebug("Waiting 100ms after stop stream retry...");
+                await new Promise(resolve => setTimeout(resolve, 100));
+            } catch (retryError) {
+                newrelic.noticeError(retryError);
+                logError("Failed to stop stream playback after retry:", retryError);
+
+                try {
+                    logInfo("Final attempt to kill ffmpeg processes...");
+                    await processManager.killFfmpegProcesses();
+                } catch (finalError) {
+                    logError("Failed to kill ffmpeg processes in final attempt:", finalError);
+                }
+            }
+        }
+    });
 }
 
 /**

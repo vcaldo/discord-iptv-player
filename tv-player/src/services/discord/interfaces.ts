@@ -19,4 +19,6 @@ export interface StreamProvider {
     joinVoiceChannel(streamOpts: StreamOptions): Promise<MediaUdp>;
     leaveVoiceChannel(): void;
     startStreaming(video: string, udpConn: MediaUdp): Promise<string>;
+    isInVoiceChannel(): boolean;
+    getCurrentVoiceConnection(): MediaUdp | null;
 }
