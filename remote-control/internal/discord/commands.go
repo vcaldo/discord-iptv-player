@@ -60,8 +60,8 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			Description: "Get the list of categories",
 		},
 		{
-			Name:        models.SearchInCategoryCommand,
-			Description: "Search channels in a category",
+			Name:        models.ListChannelsinCategoryCommand,
+			Description: "List channels in a category",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
@@ -92,7 +92,7 @@ func (b *Bot) registerCommands(ctx context.Context, nrApp *newrelic.Application)
 
 	ctx = newrelic.NewContext(ctx, txn)
 
-	// deregisterCommands(ctx, b.session)
+	deregisterCommands(ctx, b.session)
 
 	log.Println("registering commands...")
 

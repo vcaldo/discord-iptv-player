@@ -38,8 +38,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleSearchCommand(ctx, s, i, config, nrApp)
 	case models.CategoriesCommand:
 		return b.handleCategoriesCommand(ctx, s, i, config, nrApp)
-	case models.SearchInCategoryCommand:
-		return b.handleSearchInCategoryCommand(ctx, s, i, config, nrApp)
+	case models.ListChannelsinCategoryCommand:
+		return b.handleListChannelsInCategoryCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -471,7 +471,7 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 	return err
 }
 
-func (b *Bot) handleSearchInCategoryCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-search-in-category-command")
 	defer txn.End()
 
