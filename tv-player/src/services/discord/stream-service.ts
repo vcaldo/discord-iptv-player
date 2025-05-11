@@ -132,6 +132,28 @@ export class StreamService implements StreamProvider {
             newrelic.addCustomAttribute('video_url', video);
 
             try {
+                // First, test the stream before attempting to play it
+                this.logger.log("Testing stream availability before playback...");
+                const streamTest = await this.processManager.testVideoStream(video, 10000);
+
+                if (!streamTest.success) {
+                    // Log diagnostic information about why the stream test failed
+                    this.logger.error("Stream test failed:", {
+                        url: video,
+                        error: streamTest.details.error || "Unknown error"
+                    });
+
+                    throw new Error(`Cannot play video: Stream test failed - ${streamTest.details.error || "Unknown error"}`);
+                }
+
+                // Log stream information
+                this.logger.info("Stream test successful:", {
+                    format: streamTest.details.format,
+                    resolution: streamTest.details.resolution,
+                    codec: streamTest.details.codecInfo,
+                    duration: streamTest.details.duration
+                });
+
                 // Make sure we're still connected before starting the stream
                 if (!this.isInVoiceChannel()) {
                     this.logger.warn('Not in voice channel when trying to start stream, attempting to reconnect...');
@@ -178,20 +200,73 @@ export class StreamService implements StreamProvider {
                     udpConn.mediaConnection.setVideoStatus(true);
                 });
 
-                const res = await newrelic.startSegment('stream-video', true, async () => {
-                    // We'll use the streamLivestreamVideo function but make sure to handle any disconnections
-                    return await streamLivestreamVideo(video, udpConn);
-                });
+                try {
+                    const res = await newrelic.startSegment('stream-video', true, async () => {
+                        // We'll use the streamLivestreamVideo function but make sure to handle any disconnections
+                        this.logger.log("Starting ffmpeg process for video:", video);
 
-                this.logger.log("Successfully finished streaming video:", res);
+                        // Wrap streamLivestreamVideo with additional error handling for diagnostics
+                        try {
+                            return await streamLivestreamVideo(video, udpConn);
+                        } catch (ffmpegError) {
+                            // Enhanced error diagnostics
+                            if (typeof ffmpegError === 'string' && ffmpegError.includes('ffmpeg exited with code')) {
+                                // Let's log more detailed error information
+                                this.logger.error('FFMPEG Error Details:', {
+                                    error: ffmpegError,
+                                    videoUrl: video,
+                                    streamConfig: {
+                                        width: config.width,
+                                        height: config.height,
+                                        fps: config.fps,
+                                        bitrateKbps: config.bitrateKbps,
+                                        maxBitrateKbps: config.maxBitrateKbps,
+                                        codec: config.videoCodec,
+                                        hardwareAcceleration: config.hardwareAcceleratedDecoding
+                                    }
+                                });
 
-                // Check if we're still connected after streaming
-                if (!this.isInVoiceChannel()) {
-                    this.logger.warn('Voice channel connection lost after streaming, updating connection state');
-                    this.currentStream = null;
+                                // Try to give more specific error information based on the stream URL
+                                if (video.includes('m3u8') || video.includes('.ts')) {
+                                    this.logger.error('HLS/TS Stream Error: The stream may be unavailable or in an unsupported format. Consider verifying if the stream is accessible.');
+                                } else if (video.startsWith('rtmp://')) {
+                                    this.logger.error('RTMP Stream Error: The RTMP stream may be offline or using an unsupported codec.');
+                                } else if (video.includes('youtube.com') || video.includes('youtu.be')) {
+                                    this.logger.error('YouTube Stream Error: The YouTube stream may have been removed or is region-restricted.');
+                                } else {
+                                    // Try to probe the stream to get more information
+                                    this.logger.error('Unknown Stream Type Error: Attempting to verify stream availability...');
+
+                                    // In a production environment, we might add ffprobe diagnostics here
+                                    // For now, log that this could be a network or permission issue
+                                    this.logger.error('Possible causes: Network issues, missing codec, or stream unavailability');
+                                }
+                            }
+                            throw ffmpegError; // Re-throw to be handled by outer try/catch
+                        }
+                    });
+
+                    this.logger.log("Successfully finished streaming video:", res);
+
+                    // Check if we're still connected after streaming
+                    if (!this.isInVoiceChannel()) {
+                        this.logger.warn('Voice channel connection lost after streaming, updating connection state');
+                        this.currentStream = null;
+                    }
+
+                    return res;
+                } catch (streamError) {
+                    // This inner catch block handles stream-specific errors and adds more context
+                    newrelic.noticeError(streamError);
+                    this.logger.error('Streaming process error:', streamError);
+
+                    // Check if ffmpeg processes are still running and kill them
+                    await this.processManager.killFfmpegProcesses().catch(killError => {
+                        this.logger.error('Error killing ffmpeg processes after stream error:', killError);
+                    });
+
+                    throw streamError; // Re-throw to be handled by outer try/catch
                 }
-
-                return res;
             } catch (error) {
                 newrelic.noticeError(error);
                 this.logger.error('Error streaming video:', error);
@@ -215,7 +290,9 @@ export class StreamService implements StreamProvider {
                     this.currentStream = null;
                 }
 
-                throw new Error(`Failed to stream video: ${error instanceof Error ? error.message : String(error)}`);
+                // Provide more context in the error message
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                throw new Error(`Failed to stream video: ${errorMsg}`);
             }
         });
     }

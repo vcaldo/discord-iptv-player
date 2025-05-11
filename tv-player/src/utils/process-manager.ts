@@ -1,5 +1,8 @@
 import { exec } from 'child_process';
 import { Logger } from './logger.js';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
 
 /**
  * Utility class for managing processes, particularly ffmpeg instances
@@ -128,5 +131,118 @@ export class ProcessManager {
                 });
             });
         });
+    }
+
+    /**
+     * Test a video stream URL to check if it's valid and accessible
+     * @param url The video stream URL to test
+     * @param timeoutMs Timeout in milliseconds (default: 5000)
+     * @returns An object with success status and diagnostic information
+     */
+    public async testVideoStream(url: string, timeoutMs: number = 5000): Promise<{
+        success: boolean;
+        details: {
+            error?: string;
+            format?: string;
+            duration?: string;
+            resolution?: string;
+            codecInfo?: string;
+        }
+    }> {
+        this.logger.log(`Testing video stream: ${url}`);
+
+        try {
+            // Run ffprobe with a timeout to check if the stream is accessible
+            // -v error: Only show errors
+            // -show_entries format=duration,size,bit_rate,format_name : Show basic stream info
+            // -show_entries stream=codec_name,width,height : Show codec and resolution info
+            // -of json: Output in JSON format
+            const cmd = `timeout ${timeoutMs / 1000} ffprobe -v error -show_entries format=duration,size,bit_rate,format_name -show_entries stream=codec_name,width,height -of json "${url}"`;
+
+            this.logger.log(`Running command: ${cmd}`);
+            const { stdout, stderr } = await execPromise(cmd);
+
+            if (stderr) {
+                this.logger.warn(`FFprobe stderr output: ${stderr}`);
+            }
+
+            try {
+                const probeData = JSON.parse(stdout);
+
+                // Extract useful information
+                const format = probeData.format?.format_name || 'Unknown';
+                const duration = probeData.format?.duration || 'N/A';
+
+                // Get video stream information (first video stream)
+                const videoStream = probeData.streams?.find((s: any) => s.codec_type === 'video') ||
+                                 probeData.streams?.[0]; // Fallback to first stream
+
+                const resolution = videoStream ?
+                    `${videoStream.width || 'N/A'}x${videoStream.height || 'N/A'}` :
+                    'Unknown';
+
+                const codecInfo = videoStream?.codec_name || 'Unknown';
+
+                this.logger.log(`Stream test successful for ${url}`);
+                this.logger.log(`Format: ${format}, Duration: ${duration}, Resolution: ${resolution}, Codec: ${codecInfo}`);
+
+                return {
+                    success: true,
+                    details: {
+                        format,
+                        duration,
+                        resolution,
+                        codecInfo
+                    }
+                };
+            } catch (jsonError) {
+                // Could not parse JSON, but we got output
+                this.logger.warn(`Error parsing ffprobe output: ${jsonError}`);
+                this.logger.log(`Raw ffprobe output: ${stdout}`);
+
+                return {
+                    success: !stdout.includes('error') && !stderr.includes('error'),
+                    details: {
+                        error: `Could not parse ffprobe output: ${jsonError.message}`,
+                        format: stdout.includes('Input #0') ? 'Detected but format unknown' : 'Unknown'
+                    }
+                };
+            }
+        } catch (error) {
+            this.logger.error(`Error testing video stream: ${error}`);
+
+            let errorMessage = '';
+            if (error.stderr) {
+                errorMessage = error.stderr.toString();
+                this.logger.error(`FFprobe stderr: ${errorMessage}`);
+            }
+
+            // Try to extract a meaningful error message
+            let diagnosticError = 'Unknown error';
+            if (errorMessage.includes('Connection refused')) {
+                diagnosticError = 'Connection refused - The server rejected the connection';
+            } else if (errorMessage.includes('Connection timed out')) {
+                diagnosticError = 'Connection timed out - The server took too long to respond';
+            } else if (errorMessage.includes('404')) {
+                diagnosticError = 'HTTP 404 - The stream URL was not found on the server';
+            } else if (errorMessage.includes('403')) {
+                diagnosticError = 'HTTP 403 - Access forbidden, possibly geo-restricted content';
+            } else if (errorMessage.includes('No such file')) {
+                diagnosticError = 'File not found - The URL might be incorrect';
+            } else if (errorMessage.includes('Protocol not found')) {
+                diagnosticError = 'Protocol not supported - FFmpeg may need additional protocols enabled';
+            } else if (error.killed || errorMessage.includes('Timeout')) {
+                diagnosticError = 'Timeout exceeded - The stream did not respond within the allocated time';
+            } else if (errorMessage) {
+                diagnosticError = errorMessage.split('\n')[0]; // First line is usually most relevant
+            }
+
+            return {
+                success: false,
+                details: {
+                    error: diagnosticError
+                }
+            };
+        }
     }
 }
