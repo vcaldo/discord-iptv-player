@@ -9,6 +9,7 @@ import { ShutdownHandler } from "./utils/shutdown.js";
 import { YoutubeHelper } from "./utils/youtube.js";
 import { ProcessManager } from "./utils/process-manager.js";
 import { appLogger, logError, logInfo, logWarn, logDebug } from "./utils/logger.js";
+import { VoiceChannelMonitor } from './utils/voice-channel-monitor.js';
 
 // Configuration constants
 const MAX_RETRY_ATTEMPTS = 3;
@@ -54,6 +55,7 @@ const discordService = new DiscordService();
 const redisService = new RedisService();
 const processManager = new ProcessManager();
 const shutdownHandler = new ShutdownHandler(discordService, redisService, processManager);
+const voiceChannelMonitor = new VoiceChannelMonitor(discordService, handleStop);
 
 // Set up global error handling
 process.on('uncaughtException', (error) => {
@@ -177,6 +179,9 @@ async function handlePlay(title: string, url: string, xcode_username?: string, x
                 }
             }
 
+            // Start monitorint after connecting to the voice channel
+            voiceChannelMonitor.startMonitoring();
+
             logInfo(`Setting watching status to "${title}"`);
             discordService.setWatchingStatus(title);
 
@@ -197,6 +202,8 @@ async function handlePlay(title: string, url: string, xcode_username?: string, x
             logInfo(`Successfully playing "${title}"`);
 
         } catch (error) {
+            // Stop monitoring in case of error
+            voiceChannelMonitor.stopMonitoring();
             newrelic.noticeError(error);
             logError(`Error during play operation for "${title}":`, error);
 
@@ -273,7 +280,10 @@ async function handleStop() {
     return newrelic.startWebTransaction('handle-stop', async function() {
         try {
             logInfo("Stopping playback...");
-
+            
+            // Stop monitoring before leaving the voice channel
+            voiceChannelMonitor.stopMonitoring();
+            
             discordService.leaveVoiceChannel();
 
             await newrelic.startSegment('kill-ffmpeg-processes', true, async () => {
