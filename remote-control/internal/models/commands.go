@@ -8,4 +8,5 @@ const (
 	SearchCommand                 string = "search"
 	CategoriesCommand             string = "categories"
 	ListChannelsinCategoryCommand string = "list"
+	RestartCommand                string = "restart"
 )

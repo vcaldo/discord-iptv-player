@@ -40,6 +40,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleCategoriesCommand(ctx, s, i, config, nrApp)
 	case models.ListChannelsinCategoryCommand:
 		return b.handleListChannelsInCategoryCommand(ctx, s, i, config, nrApp)
+	case models.RestartCommand:
+		return b.handleRestartCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -601,5 +603,34 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 	}
 	sendSegment.End()
 
+	return err
+}
+
+func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-restart-command")
+	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	remoteControlCommand := &models.RemoteControlCommand{
+		Command: models.RestartCommand,
+	}
+
+	err := b.redis.RemoteControlCommand(remoteControlCommand)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error restarting bot: %v", err),
+		})
+		return msgErr
+	}
+
+	// Use followup message since we already acknowledged the interaction
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: "Bot is restarting... Please wait a moment.",
+	})
 	return err
 }
