@@ -6,6 +6,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
@@ -600,4 +601,108 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 	sendSegment.End()
 
 	return err
+}
+
+func (b *Bot) handleVoiceStateUpdate(ctx context.Context, s *discordgo.Session, m *discordgo.VoiceStateUpdate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-voice-state-update")
+	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	if m.ChannelID == "" {
+		// User left channel, nothing to do
+		return nil
+	}
+
+	// Get the channel
+	channel, err := s.State.Channel(m.ChannelID)
+	if err != nil {
+		txn.NoticeError(err)
+		log.Printf("Error getting channel info: %v", err)
+		return err
+	}
+
+	if channel == nil {
+		log.Printf("Channel not found: %s", m.ChannelID)
+		return fmt.Errorf("channel not found: %s", m.ChannelID)
+	}
+
+	txn.AddAttribute("channel_id", m.ChannelID)
+	txn.AddAttribute("channel_name", channel.Name)
+	txn.AddAttribute("guild_id", channel.GuildID)
+
+	// Count non-bot users in channel
+	userCount := 0
+	for _, state := range channel.Guild.VoiceStates {
+		if state.ChannelID == m.ChannelID {
+			member, err := s.State.Member(channel.GuildID, state.UserID)
+			if err != nil {
+				continue
+			}
+			if !member.User.Bot {
+				userCount++
+			}
+		}
+	}
+
+	txn.AddAttribute("user_count", userCount)
+
+	// If channel is empty, start a timer
+	if userCount == 0 {
+		log.Printf("Voice channel %s is empty, will disconnect in 60 seconds if it remains empty", channel.Name)
+
+		// Create a new context with timeout
+		timeoutCtx, cancel := context.WithTimeout(ctx, 65*time.Second)
+		defer cancel()
+
+		// Wait 60 seconds and check again
+		time.AfterFunc(60*time.Second, func() {
+			// Check if context is still valid
+			if timeoutCtx.Err() != nil {
+				log.Printf("Context expired for channel %s timer", channel.Name)
+				return
+			}
+
+			// Check if channel is still empty
+			currentChannel, err := s.State.Channel(m.ChannelID)
+			if err != nil {
+				log.Printf("Error rechecking channel: %v", err)
+				return
+			}
+
+			if currentChannel == nil {
+				log.Printf("Channel no longer exists: %s", m.ChannelID)
+				return
+			}
+
+			currentUserCount := 0
+			for _, state := range currentChannel.Guild.VoiceStates {
+				if state.ChannelID == m.ChannelID {
+					member, err := s.State.Member(currentChannel.GuildID, state.UserID)
+					if err != nil {
+						continue
+					}
+					if !member.User.Bot {
+						currentUserCount++
+					}
+				}
+			}
+
+			// If still empty, send stop command
+			if currentUserCount == 0 {
+				log.Printf("Voice channel %s remained empty for 60 seconds, stopping playback", channel.Name)
+
+				command := &models.RemoteControlCommand{
+					Command: models.StopCommand,
+				}
+
+				if err := b.redis.RemoteControlCommand(command); err != nil {
+					log.Printf("Error sending stop command: %v", err)
+					txn.NoticeError(err)
+				}
+			}
+		})
+	}
+
+	return nil
 }
