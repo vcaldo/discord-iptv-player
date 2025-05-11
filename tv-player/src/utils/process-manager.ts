@@ -4,6 +4,13 @@ import { promisify } from 'util';
 
 const execPromise = promisify(exec);
 
+interface ExecError extends Error {
+    code?: number;
+    killed?: boolean;
+    signal?: string;
+    stderr?: string | Buffer;
+}
+
 /**
  * Utility class for managing processes, particularly ffmpeg instances
  * Designed to work in Linux environments (Docker container)
@@ -33,7 +40,7 @@ export class ProcessManager {
 
                 exec('pkill -9 ffmpeg || true', (error, stdout, stderr) => {
                     if (error) {
-                        if (error.code === 1) {
+                        if ((error as ExecError).code === 1) {
                             this.logger.log('No ffmpeg processes were found running.');
                             resolve();
                             return;
@@ -59,7 +66,7 @@ export class ProcessManager {
         return new Promise((resolve, reject) => {
             exec('ps -eo pid,comm | grep -i ffmpeg | grep -v grep', (error, stdout, stderr) => {
                 if (error) {
-                    if (error.code === 1) {
+                    if ((error as ExecError).code === 1) {
                         this.logger.log('No ffmpeg processes found.');
                         resolve([]);
                         return;
@@ -203,7 +210,7 @@ export class ProcessManager {
                 return {
                     success: !stdout.includes('error') && !stderr.includes('error'),
                     details: {
-                        error: `Could not parse ffprobe output: ${jsonError.message}`,
+                        error: `Could not parse ffprobe output: ${(jsonError as Error).message || 'Unknown parsing error'}`,
                         format: stdout.includes('Input #0') ? 'Detected but format unknown' : 'Unknown'
                     }
                 };
@@ -212,8 +219,10 @@ export class ProcessManager {
             this.logger.error(`Error testing video stream: ${error}`);
 
             let errorMessage = '';
-            if (error.stderr) {
-                errorMessage = error.stderr.toString();
+            const execError = error as ExecError;
+
+            if (execError.stderr) {
+                errorMessage = execError.stderr.toString();
                 this.logger.error(`FFprobe stderr: ${errorMessage}`);
             }
 
@@ -231,7 +240,7 @@ export class ProcessManager {
                 diagnosticError = 'File not found - The URL might be incorrect';
             } else if (errorMessage.includes('Protocol not found')) {
                 diagnosticError = 'Protocol not supported - FFmpeg may need additional protocols enabled';
-            } else if (error.killed || errorMessage.includes('Timeout')) {
+            } else if (execError.killed || errorMessage.includes('Timeout')) {
                 diagnosticError = 'Timeout exceeded - The stream did not respond within the allocated time';
             } else if (errorMessage) {
                 diagnosticError = errorMessage.split('\n')[0]; // First line is usually most relevant
