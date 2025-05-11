@@ -52,6 +52,10 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			},
 		},
 		{
+			Name:        models.RestartCommand,
+			Description: "Restart the bot",
+		},
+		{
 			Name:        models.StopCommand,
 			Description: "Stop currently playing TV channel",
 		},

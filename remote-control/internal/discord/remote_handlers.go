@@ -40,6 +40,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleCategoriesCommand(ctx, s, i, config, nrApp)
 	case models.ListChannelsinCategoryCommand:
 		return b.handleListChannelsInCategoryCommand(ctx, s, i, config, nrApp)
+	case models.RestartCommand:
+		return b.handleRestartCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -79,7 +81,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error finding channel: %v", err),
+			Content: fmt.Sprintf("error finding channel: %v", err),
 		})
 		return msgErr
 	}
@@ -97,7 +99,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error starting playback: %v", err),
+			Content: fmt.Sprintf("error starting playback: %v", err),
 		})
 		return msgErr
 	}
@@ -157,7 +159,7 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error starting YouTube playback: %v", err),
+			Content: fmt.Sprintf("error starting YouTube playback: %v", err),
 		})
 		return msgErr
 	}
@@ -186,7 +188,7 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error stopping playback: %v", err),
+			Content: fmt.Sprintf("error stopping playback: %v", err),
 		})
 		return msgErr
 	}
@@ -234,7 +236,7 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 		getPlaylistSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error retrieving playlist: %v", err),
+			Content: fmt.Sprintf("error retrieving playlist: %v", err),
 		})
 		return msgErr
 	}
@@ -359,7 +361,7 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 		getSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error retrieving categories: %v", err),
+			Content: fmt.Sprintf("error retrieving categories: %v", err),
 		})
 		return msgErr
 	}
@@ -507,7 +509,7 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 		getChannelsSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error retrieving channels for category '%s': %v", category, err),
+			Content: fmt.Sprintf("error retrieving channels for category '%s': %v", category, err),
 		})
 		return msgErr
 	}
@@ -599,5 +601,47 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 	}
 	sendSegment.End()
 
+	return err
+}
+
+func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-restart-command")
+	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	remoteControlCommand := &models.RemoteControlCommand{
+		Command: models.StopCommand,
+	}
+
+	err := b.redis.RemoteControlCommand(remoteControlCommand)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("error restarting bot: %v", err),
+		})
+		return msgErr
+	}
+
+	remoteControlCommand = &models.RemoteControlCommand{
+		Command: models.RestartCommand,
+	}
+
+	err = b.redis.RemoteControlCommand(remoteControlCommand)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("error restarting bot: %v", err),
+		})
+		return msgErr
+	}
+
+	// Use followup message since we already acknowledged the interaction
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: "Bot is restarting... Please wait a moment.",
+	})
 	return err
 }
