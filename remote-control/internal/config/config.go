@@ -20,8 +20,6 @@ type Config struct {
 	PlaylistURL           string `envconfig:"PLAYLIST_URL" required:"true"`
 	PlaylistName          string `envconfig:"PLAYLIST_NAME" default:"iptv"`
 	PlaylistMaxAgeDays    int    `envconfig:"PLAYLIST_MAX_AGE_DAYS" default:"10"`
-	PlaylistXcodeUsername string `envconfig:"PLAYLIST_XCODE_USERNAME" default:""`
-	PlaylistXcodePassword string `envconfig:"PLAYLIST_XCODE_PASSWORD" default:""`
 }
 
 func LoadConfig() (*Config, error) {

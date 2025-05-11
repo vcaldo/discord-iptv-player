@@ -5,11 +5,9 @@ import (
 )
 
 type RemoteControlCommand struct {
-	Command       string `json:"command"`
-	Title         string `json:"title"`
-	Url           string `json:"url"`
-	XcodeUsername string `json:"xcode_username"`
-	XcodePassword string `json:"xcode_password"`
+	Command string `json:"command"`
+	Title   string `json:"title"`
+	Url     string `json:"url"`
 }
 
 type Playlist struct {
@@ -20,15 +18,13 @@ type Playlist struct {
 }
 
 type TvChannel struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Url           string `json:"url"`
-	Logo          string `json:"logo"`
-	Category      string `json:"category"`
-	Favorite      bool   `json:"favorite"`
-	Enabled       bool   `json:"enabled"`
-	XcodeUsername string `json:"xcode_username"`
-	XcodePassword string `json:"xcode_password"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Url      string `json:"url"`
+	Logo     string `json:"logo"`
+	Category string `json:"category"`
+	Favorite bool   `json:"favorite"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type YoutubeVideo struct {
