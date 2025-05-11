@@ -133,8 +133,6 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			pipe.HSet(channelKey, "category", channel.Category)
 			pipe.HSet(channelKey, "favorite", channel.Favorite)
 			pipe.HSet(channelKey, "enabled", channel.Enabled)
-			pipe.HSet(channelKey, "xcode_username", channel.XcodeUsername)
-			pipe.HSet(channelKey, "xcode_password", channel.XcodePassword)
 
 			pipe.SAdd(channelsKey, channelIndex)
 
@@ -245,15 +243,6 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 
 			if enabledStr, ok := channelData["enabled"]; ok {
 				channel.Enabled = enabledStr == "1" || enabledStr == "true"
-			}
-
-			// Get xcode credentials
-			if username, ok := channelData["xcode_username"]; ok {
-				channel.XcodeUsername = username
-			}
-
-			if password, ok := channelData["xcode_password"]; ok {
-				channel.XcodePassword = password
 			}
 
 			// Add channel to playlist
@@ -408,15 +397,6 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 			Enabled:  channelData["enabled"] == "1" || channelData["enabled"] == "true",
 		}
 
-		// Get xcode credentials
-		if username, ok := channelData["xcode_username"]; ok {
-			channel.XcodeUsername = username
-		}
-
-		if password, ok := channelData["xcode_password"]; ok {
-			channel.XcodePassword = password
-		}
-
 		log.Printf("retrieved channel '%s' from playlist '%s' for guild %s",
 			channel.Name, playlistName, guildID)
 
@@ -547,15 +527,6 @@ func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) (
 
 			if enabledStr, ok := channelData["enabled"]; ok {
 				channel.Enabled = enabledStr == "1" || enabledStr == "true"
-			}
-
-			// Get xcode credentials
-			if username, ok := channelData["xcode_username"]; ok {
-				channel.XcodeUsername = username
-			}
-
-			if password, ok := channelData["xcode_password"]; ok {
-				channel.XcodePassword = password
 			}
 
 			// Add channel to results
