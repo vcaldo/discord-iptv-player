@@ -167,6 +167,12 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 
 		log.Printf("playlist '%s' stored successfully for guild %s with %d channels and %d categories",
 			playlist.Name, guildID, len(playlist.Channels), len(categoriesMap))
+
+		// Create search index for the newly stored playlist
+		if err := c.CreateChannelSearchIndex(guildID, playlist.Name); err != nil {
+			log.Printf("warning: failed to create search index for playlist '%s': %v", playlist.Name, err)
+		}
+
 		return nil
 	})
 }
@@ -585,4 +591,167 @@ func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int,
 
 func (c *Client) Close() error {
 	return c.rdb.Close()
+}
+
+func (c *Client) CreateChannelSearchIndex(guildID, playlistName string) error {
+	return c.instrumentOperation("create-channel-search-index", func() error {
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+		indexName := fmt.Sprintf("idx:%s:%s:channels", guildID, playlistName)
+
+		// First check if index already exists, and drop it if it does
+		indexExists, err := c.rdb.Do("FT._LIST").Result()
+		if err == nil {
+			indexList, ok := indexExists.([]interface{})
+			if ok {
+				for _, idx := range indexList {
+					idxName, ok := idx.(string)
+					if ok && idxName == indexName {
+						// Index exists, drop it before recreating
+						_, err = c.rdb.Do("FT.DROPINDEX", indexName).Result()
+						if err != nil {
+							log.Printf("warning: failed to drop existing index %s: %v", indexName, err)
+						} else {
+							log.Printf("dropped existing search index %s", indexName)
+						}
+						break
+					}
+				}
+			}
+		}
+
+		// Create the index
+		_, err = c.rdb.Do(
+			"FT.CREATE", indexName,
+			"ON", "HASH",
+			"PREFIX", "1", fmt.Sprintf("%s:", channelsKey),
+			"SCHEMA",
+			"name", "TEXT", "WEIGHT", "5.0", "SORTABLE",
+			"category", "TEXT", "WEIGHT", "1.0", "SORTABLE",
+		).Result()
+
+		if err != nil {
+			if err.Error() == "Index already exists" {
+				log.Printf("search index %s already exists", indexName)
+				return nil
+			}
+			return fmt.Errorf("failed to create search index: %w", err)
+		}
+
+		log.Printf("successfully created search index %s for channels", indexName)
+		return nil
+	})
+}
+
+func (c *Client) SearchChannelsByName(guildID, playlistName, searchTerm string) ([]models.TvChannel, error) {
+	var channels []models.TvChannel
+
+	err := c.instrumentOperation("search-channels-by-name", func() error {
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
+		indexName := fmt.Sprintf("idx:%s:%s:channels", guildID, playlistName)
+
+		// Check if the index exists
+		indexExists, err := c.rdb.Do("FT._LIST").Result()
+		if err != nil {
+			return fmt.Errorf("failed to check search indexes: %w", err)
+		}
+
+		// Create the index if it doesn't exist
+		indexFound := false
+		indexList, ok := indexExists.([]interface{})
+		if ok {
+			for _, idx := range indexList {
+				idxName, ok := idx.(string)
+				if ok && idxName == indexName {
+					indexFound = true
+					break
+				}
+			}
+		}
+
+		if !indexFound {
+			if err := c.CreateChannelSearchIndex(guildID, playlistName); err != nil {
+				return fmt.Errorf("failed to create search index: %w", err)
+			}
+		}
+
+		// Prepare search query with fuzzy matching
+		// %term% performs fuzzy matching on the term
+		// Use the LIMIT 0 25 to get only 25 results (Discord autocomplete limit)
+		query := ""
+		if searchTerm == "" || len(searchTerm) < 2 {
+			// If search term is empty or too short, return top channels
+			query = "*"
+		} else {
+			// Use fuzzy search for terms with 2+ characters
+			// The % symbols denote fuzzy matching with default Levenshtein distance
+			query = fmt.Sprintf("@name:%%%s%%", searchTerm)
+		}
+
+		// Perform the search
+		result, err := c.rdb.Do(
+			"FT.SEARCH", indexName,
+			query,
+			"LIMIT", "0", "25",
+			"SORTBY", "name", "ASC",
+		).Result()
+
+		if err != nil {
+			return fmt.Errorf("failed to search channels: %w", err)
+		}
+
+		// Process search results
+		results, ok := result.([]interface{})
+		if !ok || len(results) < 1 {
+			log.Printf("no search results found for '%s'", searchTerm)
+			return nil
+		}
+
+		// Skip first element (total count) and parse the rest
+		totalResults, ok := results[0].(int64)
+		if !ok || totalResults == 0 {
+			log.Printf("no channels found matching '%s'", searchTerm)
+			return nil
+		}
+
+		// Extract channel data from search results
+		for i := 1; i < len(results); i += 2 {
+			// results[i] is the key, results[i+1] is an array of field-value pairs
+			keyIface := results[i]
+			key, ok := keyIface.(string)
+			if !ok {
+				continue
+			}
+
+			// Get the channel ID from the key
+			channelID := key[len(fmt.Sprintf("%s:", channelsKey)):]
+
+			// Get full channel details
+			channelData, err := c.rdb.HGetAll(key).Result()
+			if err != nil {
+				log.Printf("Warning: failed to retrieve channel data for key %s: %v", key, err)
+				continue
+			}
+
+			// Create channel object
+			channel := models.TvChannel{
+				ID:       channelID,
+				Name:     channelData["name"],
+				Url:      channelData["url"],
+				Logo:     channelData["logo"],
+				Category: channelData["category"],
+				Favorite: channelData["favorite"] == "1" || channelData["favorite"] == "true",
+				Enabled:  channelData["enabled"] == "1" || channelData["enabled"] == "true",
+			}
+
+			channels = append(channels, channel)
+		}
+
+		log.Printf("found %d channels matching search term '%s' in playlist '%s' for guild %s",
+			len(channels), searchTerm, playlistName, guildID)
+		return nil
+	})
+
+	return channels, err
 }

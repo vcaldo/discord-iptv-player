@@ -42,6 +42,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleListChannelsInCategoryCommand(ctx, s, i, config, nrApp)
 	case models.RestartCommand:
 		return b.handleRestartCommand(ctx, s, i, config, nrApp)
+	case models.ChannelsCommand:
+		return b.handleChannelsCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -643,5 +645,86 @@ func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i 
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: "Bot is restarting... Please wait a moment.",
 	})
+	return err
+}
+
+func (b *Bot) handleChannelsCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-channels-command")
+	defer txn.End()
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	parseSegment := txn.StartSegment("parse_options")
+	options := i.ApplicationCommandData().Options
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
+	}
+
+	var channelID string
+	if opt, ok := optionMap["channel name"]; ok {
+		// The autocomplete provides the channel ID as the value
+		channelID = opt.StringValue()
+	} else {
+		parseSegment.End()
+		// Use followup message since we already acknowledged the interaction
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "Please select a channel to play",
+		})
+		return err
+	}
+	parseSegment.End()
+
+	txn.AddAttribute("selected_channel_id", channelID)
+
+	// Get the channel details from Redis
+	getChannelSegment := txn.StartSegment("get_channel")
+	channel, err := b.redis.GetChannel(config.DiscordGuildID, config.PlaylistName, channelID)
+	if err != nil {
+		getChannelSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error finding channel: %v", err),
+		})
+		return msgErr
+	}
+	getChannelSegment.End()
+
+	txn.AddAttribute("channel_name", channel.Name)
+
+	// Create the remote control command to play the channel
+	playSegment := txn.StartSegment("send_play_command")
+	remoteControlCommand := &models.RemoteControlCommand{
+		Command: models.PlayCommand,
+		Title:   channel.Name,
+		Url:     channel.Url,
+	}
+
+	err = b.redis.RemoteControlCommand(remoteControlCommand)
+	if err != nil {
+		playSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error starting playback: %v", err),
+		})
+		return msgErr
+	}
+	playSegment.End()
+
+	// Send confirmation message
+	respondSegment := txn.StartSegment("send_response")
+	var categoryInfo string
+	if channel.Category != "" {
+		categoryInfo = fmt.Sprintf(" [%s]", channel.Category)
+	}
+
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: fmt.Sprintf("🎬 Playing channel: **%s**%s (ID: %s)", channel.Name, categoryInfo, channel.ID),
+	})
+	respondSegment.End()
+
 	return err
 }
