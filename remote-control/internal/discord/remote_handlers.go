@@ -654,10 +654,10 @@ func (b *Bot) handleChannelsCommand(ctx context.Context, s *discordgo.Session, i
 		optionMap[opt.Name] = opt
 	}
 
-	var channelID string
+	var channelInput string
 	if opt, ok := optionMap["channel_name"]; ok {
-		// The autocomplete provides the channel ID as the value
-		channelID = opt.StringValue()
+		// Get the value entered by user (could be ID or search term)
+		channelInput = opt.StringValue()
 	} else {
 		parseSegment.End()
 		// Use followup message since we already acknowledged the interaction
@@ -668,18 +668,128 @@ func (b *Bot) handleChannelsCommand(ctx context.Context, s *discordgo.Session, i
 	}
 	parseSegment.End()
 
-	txn.AddAttribute("selected_channel_id", channelID)
+	txn.AddAttribute("channel_input", channelInput)
 
-	// Get the channel details from Redis
+	// First, try to get the channel as an ID directly (for autocomplete selection)
 	getChannelSegment := txn.StartSegment("get_channel")
-	channel, err := b.redis.GetChannel(config.DiscordGuildID, config.PlaylistName, channelID)
+	channel, err := b.redis.GetChannel(config.DiscordGuildID, config.PlaylistName, channelInput)
+
+	// If not found as direct ID, try searching with the unlimited search function
 	if err != nil {
-		getChannelSegment.End()
-		txn.NoticeError(err)
-		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error finding channel: %v", err),
-		})
-		return msgErr
+		getChannelSegment.End() // End the first segment
+		log.Printf("Channel not found directly by ID, trying search: %v", err)
+
+		// Start search segment
+		searchSegment := txn.StartSegment("search_channels_unlimited")
+		channels, err := b.redis.SearchChannelsByNameUnlimited(config.DiscordGuildID, config.PlaylistName, channelInput)
+
+		if err != nil {
+			searchSegment.End()
+			txn.NoticeError(err)
+			_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("Error searching for channel: %v", err),
+			})
+			return msgErr
+		}
+
+		searchSegment.End()
+		txn.AddAttribute("search_results_count", len(channels))
+
+		// If no channels found with search
+		if len(channels) == 0 {
+			_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("🙅‍♀️ No channels found matching `%s`", channelInput),
+			})
+			return err
+		}
+
+		// If multiple channels found, show results similar to search command
+		if len(channels) > 1 {
+			// Find the maximum length of channel ID and category for proper alignment
+			formatSegment := txn.StartSegment("format_results")
+			maxIDLength := 0
+			maxCategoryLength := 0
+			for _, ch := range channels {
+				if len(ch.ID) > maxIDLength {
+					maxIDLength = len(ch.ID)
+				}
+				if len(ch.Category) > maxCategoryLength {
+					maxCategoryLength = len(ch.Category)
+				}
+			}
+
+			formatString := fmt.Sprintf("%%-%ds - %%-%ds - %%s", maxIDLength, maxCategoryLength)
+
+			// Format the channel data for display
+			var formattedChannels []string
+			for _, ch := range channels {
+				formattedChannels = append(formattedChannels, fmt.Sprintf(formatString,
+					ch.ID, ch.Category, ch.Name))
+			}
+
+			// Format the response
+			header := fmt.Sprintf("🔎  Found **%d** channels matching `%s`. Use the channel ID to play a specific channel:\n\n", len(channels), channelInput)
+
+			// Send results in batches of approximately 1700 characters (leaving room for headers)
+			const maxBatchSize = 1700
+			var currentBatch strings.Builder
+			currentBatch.WriteString(header)
+			currentBatch.WriteString("```\n") // Start code block
+			formatSegment.End()
+
+			sendSegment := txn.StartSegment("send_results")
+			for idx, ch := range formattedChannels {
+				// If adding this channel would exceed the batch size, send the current batch
+				if currentBatch.Len() > 0 && currentBatch.Len()+len(ch)+10 > maxBatchSize { // Add 10 for the code block syntax
+					// Close the code block
+					currentBatch.WriteString("```")
+
+					// Send the current batch
+					_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+						Content: currentBatch.String(),
+					})
+					if err != nil {
+						txn.NoticeError(err)
+						sendSegment.End()
+						return err
+					}
+
+					// Start a new batch
+					currentBatch.Reset()
+
+					// If this isn't the first channel, add a continuation header
+					if idx > 0 {
+						currentBatch.WriteString(fmt.Sprintf("Results for `%s` (continued):\n\n", channelInput))
+					}
+
+					// Start new code block
+					currentBatch.WriteString("```\n")
+				}
+
+				// Add the channel to the current batch
+				currentBatch.WriteString(ch)
+				currentBatch.WriteString("\n")
+			}
+
+			// Send any remaining channels in the final batch
+			if currentBatch.Len() > 0 {
+				// Close the code block
+				currentBatch.WriteString("```")
+
+				_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+					Content: currentBatch.String(),
+				})
+				if err != nil {
+					txn.NoticeError(err)
+				}
+			}
+			sendSegment.End()
+
+			return err
+		}
+
+		// If exactly one channel found, use that one
+		channel = &channels[0]
 	}
 	getChannelSegment.End()
 
