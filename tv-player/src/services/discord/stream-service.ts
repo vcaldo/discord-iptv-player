@@ -165,7 +165,7 @@ export class StreamService implements StreamProvider {
                         hardwareAcceleratedDecoding: config.hardwareAcceleratedDecoding,
                         videoCodec: config.videoCodec as any,
                         rtcpSenderReportEnabled: false,
-                        h26xPreset: 'veryslow',
+                        h26xPreset: 'ultrafast',
                         minimizeLatency: false,
                         forceChacha20Encryption: true
                     });
@@ -179,8 +179,24 @@ export class StreamService implements StreamProvider {
                 });
 
                 const res = await newrelic.startSegment('stream-video', true, async () => {
-                    // We'll use the streamLivestreamVideo function but make sure to handle any disconnections
-                    return await streamLivestreamVideo(video, udpConn);
+                    // Enable ffmpeg debug logging
+                    this.logger.log("Setting FFMPEG_DEBUG_LEVEL=debug for detailed ffmpeg logs");
+                    process.env.FFMPEG_DEBUG_LEVEL = 'debug';
+
+                    // Add a custom ffmpeg args option to increase verbosity for ARM debugging
+                    const customFfmpegArgs = [
+                        '-loglevel', 'debug',  // Set log level to debug
+                        '-v', 'verbose'        // Enable verbose output
+                    ];
+
+                    try {
+                        // Modify the discord-video-stream streamLivestreamVideo to use debug flags
+                        return await streamLivestreamVideo(video, udpConn, true); // Set to true to enable debug mode
+                    } catch (streamError) {
+                        // Log detailed error information
+                        this.logger.error('FFmpeg streaming error details:', streamError);
+                        throw streamError;
+                    }
                 });
 
                 this.logger.log("Successfully finished streaming video:", res);

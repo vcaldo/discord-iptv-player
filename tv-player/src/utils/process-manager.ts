@@ -54,7 +54,8 @@ export class ProcessManager {
      */
     public findFfmpegProcesses(): Promise<number[]> {
         return new Promise((resolve, reject) => {
-            exec('ps -eo pid,comm | grep -i ffmpeg | grep -v grep', (error, stdout, stderr) => {
+            // Enhanced command to show command line arguments for better debugging
+            exec('ps -eo pid,cmd | grep -i ffmpeg | grep -v grep', (error, stdout, stderr) => {
                 if (error) {
                     if (error.code === 1) {
                         this.logger.log('No ffmpeg processes found.');
@@ -89,7 +90,11 @@ export class ProcessManager {
                     this.logger.log('No ffmpeg processes found after parsing.');
                 } else {
                     this.logger.log(`Found ${pids.length} ffmpeg processes with PIDs: ${pids.join(', ')}`);
-                    this.logger.log('Process details:', processDetails);
+                    // Log full command lines for better debugging
+                    this.logger.log('Process details:');
+                    processDetails.forEach((detail, index) => {
+                        this.logger.log(`[${index}]: ${detail}`);
+                    });
                 }
 
                 resolve(pids);
