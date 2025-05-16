@@ -88,6 +88,19 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 				},
 			},
 		},
+		{
+			Name:        models.ChannelsCommand,
+			Description: "Search all channels with auto-complete",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:         discordgo.ApplicationCommandOptionString,
+					Name:         "channel name",
+					Description:  "The channel name to search for",
+					Required:     true,
+					Autocomplete: true,
+				},
+			},
+		},
 	}
 }
 
