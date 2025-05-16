@@ -132,7 +132,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 			}
 		}
 
-		if focused == nil || focused.Name != "channel name" {
+		if focused == nil || focused.Name != "channel_name" {
 			return nil // Not the option we're handling
 		}
 

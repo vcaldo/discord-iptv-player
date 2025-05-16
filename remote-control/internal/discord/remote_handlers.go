@@ -665,7 +665,7 @@ func (b *Bot) handleChannelsCommand(ctx context.Context, s *discordgo.Session, i
 	}
 
 	var channelID string
-	if opt, ok := optionMap["channel name"]; ok {
+	if opt, ok := optionMap["channel_name"]; ok {
 		// The autocomplete provides the channel ID as the value
 		channelID = opt.StringValue()
 	} else {
