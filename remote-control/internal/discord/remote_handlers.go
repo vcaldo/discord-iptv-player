@@ -231,63 +231,53 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	}
 	parseSegment.End()
 
-	// Get the playlist
-	getPlaylistSegment := txn.StartSegment("get_playlist")
-	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, config.PlaylistName)
+	// Search for channels directly using Redis search with unlimited results
+	searchSegment := txn.StartSegment("search_channels_unlimited")
+	channels, err := b.redis.SearchChannelsByNameUnlimited(config.DiscordGuildID, config.PlaylistName, searchQuery)
 	if err != nil {
-		getPlaylistSegment.End()
+		searchSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("error retrieving playlist: %v", err),
+			Content: fmt.Sprintf("error searching channels: %v", err),
 		})
 		return msgErr
-	}
-	getPlaylistSegment.End()
-
-	// Search for channels
-	searchSegment := txn.StartSegment("search_channels")
-	var matchingChannels []string
-	searchQueryLower := strings.ToLower(searchQuery)
-
-	// Find the maximum length of channel ID for proper alignment
-	prepareSegment := txn.StartSegment("max_id_length")
-	maxIDLength := 0
-	maxCategoryLength := 0
-	for _, channel := range playlist.Channels {
-		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
-			if len(channel.ID) > maxIDLength {
-				maxIDLength = len(channel.ID)
-			}
-			if len(channel.Category) > maxCategoryLength {
-				maxCategoryLength = len(channel.Category)
-			}
-		}
-	}
-	prepareSegment.End()
-
-	formatString := fmt.Sprintf("%%-%ds - %%-%ds - %%s", maxIDLength, maxCategoryLength)
-
-	for _, channel := range playlist.Channels {
-		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
-			matchingChannels = append(matchingChannels, fmt.Sprintf(formatString,
-				channel.ID, channel.Category, channel.Name))
-		}
 	}
 	searchSegment.End()
 
 	txn.AddAttribute("search_query", searchQuery)
-	txn.AddAttribute("results_count", len(matchingChannels))
+	txn.AddAttribute("results_count", len(channels))
 
-	if len(matchingChannels) == 0 {
+	if len(channels) == 0 {
 		_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: fmt.Sprintf("🙅‍♀️  No channels found matching `%s`", searchQuery),
 		})
 		return err
 	}
 
-	// Split results into batches to stay within Discord's 2000 character limit
+	// Find the maximum length of channel ID and category for proper alignment
 	formatSegment := txn.StartSegment("format_results")
-	header := fmt.Sprintf("🔎  Found **%d** channels matching `%s`:\n\n", len(matchingChannels), searchQuery)
+	maxIDLength := 0
+	maxCategoryLength := 0
+	for _, channel := range channels {
+		if len(channel.ID) > maxIDLength {
+			maxIDLength = len(channel.ID)
+		}
+		if len(channel.Category) > maxCategoryLength {
+			maxCategoryLength = len(channel.Category)
+		}
+	}
+
+	formatString := fmt.Sprintf("%%-%ds - %%-%ds - %%s", maxIDLength, maxCategoryLength)
+
+	// Format the channel data for display
+	var formattedChannels []string
+	for _, channel := range channels {
+		formattedChannels = append(formattedChannels, fmt.Sprintf(formatString,
+			channel.ID, channel.Category, channel.Name))
+	}
+
+	// Format the response
+	header := fmt.Sprintf("🔎  Found **%d** channels matching `%s`:\n\n", len(channels), searchQuery)
 
 	// Send results in batches of approximately 1700 characters (leaving room for headers)
 	const maxBatchSize = 1700
@@ -297,7 +287,7 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	formatSegment.End()
 
 	sendSegment := txn.StartSegment("send_results")
-	for idx, channel := range matchingChannels {
+	for idx, channel := range formattedChannels {
 		// If adding this channel would exceed the batch size, send the current batch
 		if currentBatch.Len() > 0 && currentBatch.Len()+len(channel)+10 > maxBatchSize { // Add 10 for the code block syntax
 			// Close the code block
