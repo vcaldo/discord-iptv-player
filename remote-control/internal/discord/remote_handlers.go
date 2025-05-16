@@ -231,9 +231,9 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	}
 	parseSegment.End()
 
-	// Search for channels directly using Redis search
-	searchSegment := txn.StartSegment("search_channels")
-	channels, err := b.redis.SearchChannelsByName(config.DiscordGuildID, config.PlaylistName, searchQuery)
+	// Search for channels directly using Redis search with unlimited results
+	searchSegment := txn.StartSegment("search_channels_unlimited")
+	channels, err := b.redis.SearchChannelsByNameUnlimited(config.DiscordGuildID, config.PlaylistName, searchQuery)
 	if err != nil {
 		searchSegment.End()
 		txn.NoticeError(err)
