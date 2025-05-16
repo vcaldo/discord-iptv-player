@@ -165,7 +165,7 @@ export class StreamService implements StreamProvider {
                         hardwareAcceleratedDecoding: config.hardwareAcceleratedDecoding,
                         videoCodec: config.videoCodec as any,
                         rtcpSenderReportEnabled: false,
-                        h26xPreset: 'ultrafast',
+                        h26xPreset: 'veryslow',
                         minimizeLatency: false,
                         forceChacha20Encryption: true
                     });
