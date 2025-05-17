@@ -5,9 +5,10 @@ import (
 )
 
 type RemoteControlCommand struct {
-	Command string `json:"command"`
-	Title   string `json:"title"`
-	Url     string `json:"url"`
+	Command        string `json:"command"`
+	Title          string `json:"title"`
+	Url            string `json:"url"`
+	VoiceChannelID string `json:"voice_channel_id,omitempty"`
 }
 
 type Playlist struct {

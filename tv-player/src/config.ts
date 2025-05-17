@@ -33,11 +33,6 @@ const DiscordSchema = z.object({
     required_error: "GUILD_ID is required",
     invalid_type_error: "GUILD_ID must be a string"
   }).min(1, "GUILD_ID cannot be empty"),
-
-  videoChannelId: z.string({
-    required_error: "VIDEO_CHANNEL_ID is required",
-    invalid_type_error: "VIDEO_CHANNEL_ID must be a string"
-  }).min(1, "VIDEO_CHANNEL_ID cannot be empty")
 });
 
 // Define schema for stream configuration
@@ -122,7 +117,6 @@ function validateConfig(): AppConfig {
       discord: {
         token: process.env.TOKEN,
         guildId: process.env.GUILD_ID,
-        videoChannelId: process.env.VIDEO_CHANNEL_ID
       },
       stream: {
         respect_video_params: process.env.STREAM_RESPECT_VIDEO_PARAMS,
@@ -187,7 +181,6 @@ function createFallbackConfig(error: z.ZodError, originalConfig: any): AppConfig
     discord: {
       token: originalConfig.discord.token || "dummy-token-for-dev",
       guildId: originalConfig.discord.guildId || "dummy-guild-for-dev",
-      videoChannelId: originalConfig.discord.videoChannelId || "dummy-channel-for-dev"
     },
     stream: {
       respect_video_params: false,
@@ -253,7 +246,6 @@ try {
       discord: {
         token: process.env.TOKEN || "dummy-token",
         guildId: process.env.GUILD_ID || "dummy-guild",
-        videoChannelId: process.env.VIDEO_CHANNEL_ID || "dummy-channel"
       },
       stream: {
         respect_video_params: false,
@@ -283,7 +275,6 @@ const config = {
   // Discord options
   token: validatedConfig.discord.token,
   guildId: validatedConfig.discord.guildId,
-  videoChannelId: validatedConfig.discord.videoChannelId,
 
   // Stream options
   respect_video_params: validatedConfig.stream.respect_video_params,

@@ -16,9 +16,9 @@ export interface ConnectionManager {
 
 // Define interfaces for streaming functionality
 export interface StreamProvider {
-    joinVoiceChannel(streamOpts: StreamOptions): Promise<MediaUdp>;
+    joinVoiceChannel(streamOpts: StreamOptions, voice_channel_id: string): Promise<MediaUdp>;
     leaveVoiceChannel(): void;
-    startStreaming(video: string, udpConn: MediaUdp): Promise<string>;
+    startStreaming(video: string, udpConn: MediaUdp, voice_channel_id: string): Promise<string>;
     isInVoiceChannel(): boolean;
     getCurrentVoiceConnection(): MediaUdp | null;
 }

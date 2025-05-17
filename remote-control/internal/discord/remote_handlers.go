@@ -60,6 +60,22 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
+	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("error getting user voice state: %v", err),
+		})
+		return msgErr
+	}
+
+	if userVoiceState == nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "❌ You must be in a voice channel to use this command!",
+		})
+		return err
+	}
+
 	options := i.ApplicationCommandData().Options
 	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
 	for _, opt := range options {
@@ -90,9 +106,10 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("channel_name", channel.Name)
 
 	remoteControlCommand := &models.RemoteControlCommand{
-		Command: models.PlayCommand,
-		Title:   channel.Name,
-		Url:     channel.Url,
+		Command:        models.PlayCommand,
+		Title:          channel.Name,
+		Url:            channel.Url,
+		VoiceChannelID: userVoiceState.ChannelID,
 	}
 
 	err = b.redis.RemoteControlCommand(remoteControlCommand)
@@ -104,7 +121,6 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		return msgErr
 	}
 
-	// Use followup message since we already acknowledged the interaction
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: fmt.Sprintf("Playing channel: %s - %s", channel.ID, channel.Name),
 	})
@@ -129,7 +145,6 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 	if opt, ok := optionMap["url"]; ok {
 		youtubeURL = opt.StringValue()
 	} else {
-		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: "Please specify a YouTube URL to play",
 		})
@@ -180,11 +195,27 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
+	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("error getting user voice state: %v", err),
+		})
+		return msgErr
+	}
+
+	if userVoiceState == nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "❌ You must be in a voice channel to use this command!",
+		})
+		return err
+	}
+
 	remoteControlCommand := &models.RemoteControlCommand{
 		Command: models.StopCommand,
 	}
 
-	err := b.redis.RemoteControlCommand(remoteControlCommand)
+	err = b.redis.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
