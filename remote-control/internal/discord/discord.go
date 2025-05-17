@@ -86,6 +86,8 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 		voiceTxn.AddAttribute("event_channel_id", v.ChannelID)
 		voiceTxn.AddAttribute("event_type", "voice_state_update")
 
+		voiceCtx := newrelic.NewContext(ctx, voiceTxn)
+
 		log.Printf("voicestateupdate event: userid=%s, channelid=%s", v.UserID, v.ChannelID)
 
 		botUserID := b.redis.GetID("tv_player_bot_id")
@@ -93,15 +95,23 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 			log.Printf("warning: tv player bot ID not found in Redis")
 			return
 		}
-		voiceChannelMembers, err := getChannelMembers(ctx, s, v.GuildID, v.BeforeUpdate.ChannelID, nrApp)
+
+		var channelIDToCheck string
+		if v.BeforeUpdate != nil {
+			channelIDToCheck = v.BeforeUpdate.ChannelID
+		} else {
+			channelIDToCheck = v.ChannelID
+		}
+
+		voiceChannelMembers, err := getChannelMembers(voiceCtx, s, v.GuildID, channelIDToCheck, nrApp)
 		if err != nil {
 			log.Printf("error getting channel members: %v", err)
 			return
 		}
-		log.Printf("found %d members in channel %s", len(voiceChannelMembers), v.ChannelID)
+		log.Printf("found %d members in channel %s", len(voiceChannelMembers), channelIDToCheck)
 
 		if len(voiceChannelMembers) == 1 {
-			log.Printf("only one member in channel %s", v.ChannelID)
+			log.Printf("only one member in channel %s", channelIDToCheck)
 			log.Printf("members: %+v", voiceChannelMembers)
 			if voiceChannelMembers[0].ID == botUserID {
 				log.Printf("TV Service is alone in the channel, leaving...")
