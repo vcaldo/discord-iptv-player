@@ -93,7 +93,7 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 			log.Printf("warning: tv player bot ID not found in Redis")
 			return
 		}
-		voiceChannelMembers, err := getChannelMembers(ctx, s, v.GuildID, v.BeforeUpdate.ChannelID, nrApp)
+		voiceChannelMembers, err := getChannelMembers(ctx, s, v.GuildID, v.ChannelID, nrApp)
 		if err != nil {
 			log.Printf("error getting channel members: %v", err)
 			return
