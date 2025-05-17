@@ -798,16 +798,15 @@ func (c *Client) SearchChannelsByNameUnlimited(guildID, playlistName, searchTerm
 			// If search term is empty or too short, return all channels
 			query = "*"
 		} else {
-			// Escape special characters in the search term
-			// Redis search special chars: | & ^ " ~ ( ) @ : . - + = < > ! \
-			escapeChars := []string{"|", "&", "^", "\"", "~", "(", ")", "@", ":", ".", "-", "+", "=", "<", ">", "!", "\\"}
-			escapedTerm := searchTerm
-			for _, char := range escapeChars {
-				escapedTerm = strings.ReplaceAll(escapedTerm, char, "\\"+char)
-			}
+			// Instead of escaping each character individually, use exact match with quotes to handle special chars
+			// This is more reliable than trying to escape each character
+			query = fmt.Sprintf("@name:%%%s%%", searchTerm)
 
-			// Use fuzzy search for terms with 2+ characters with escaped term
-			query = fmt.Sprintf("@name:%%%s%%", escapedTerm)
+			// If there are any problematic characters, use the full-text search without fuzzy matching
+			if strings.ContainsAny(searchTerm, "|-&^\"~()@:.\\+=-<>!") {
+				escapedTerm := strings.ReplaceAll(searchTerm, "\"", "\\\"") // Escape quotes for proper JSON
+				query = fmt.Sprintf("@name:\"%s\"", escapedTerm)
+			}
 		}
 
 		// Perform the search without the 25-result limit
