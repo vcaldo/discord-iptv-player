@@ -56,7 +56,7 @@ export class DiscordService {
         });
     }
 
-    public async joinVoiceChannel(streamOpts: StreamOptions, voice_channel_id?: string): Promise<MediaUdp> {
+    public async joinVoiceChannel(streamOpts: StreamOptions, voice_channel_id: string): Promise<MediaUdp> {
         return newrelic.startSegment('join-voice-channel', true, async () => {
             if (!this.isReady()) {
                 this.logger.warn('Discord client not ready. Connecting before joining voice channel...');
@@ -73,14 +73,14 @@ export class DiscordService {
         });
     }
 
-    public async startStreaming(video: string, udpConn: MediaUdp): Promise<string> {
+    public async startStreaming(video: string, udpConn: MediaUdp, voice_channel_id: string): Promise<string> {
         return newrelic.startSegment('start-streaming', true, async () => {
             if (!this.isReady()) {
                 throw new Error('Discord client not ready. Cannot start streaming.');
             }
 
             newrelic.addCustomAttribute('video_url', video);
-            return this.streamService.startStreaming(video, udpConn);
+            return this.streamService.startStreaming(video, udpConn, voice_channel_id);
         });
     }
 

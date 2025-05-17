@@ -137,14 +137,14 @@ async function handlePlay(title: string, url: string, voice_channel_id: string) 
 
             logInfo('Starting video stream...');
             await newrelic.startSegment('start-streaming', true, async () => {
-                await discordService.startStreaming(videoUrl, streamUdpConn);
+                await discordService.startStreaming(videoUrl, streamUdpConn, voice_channel_id);
             });
 
             // Verify we're still in the voice channel after streaming
             if (!discordService.isInVoiceChannel()) {
                 logWarn('Voice channel connection lost after streaming, attempting to reconnect...');
                 await newrelic.startSegment('reconnect-voice-channel', true, async () => {
-                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts, voice_channel_id);
                     logInfo('Successfully reconnected to voice channel');
                 });
             }

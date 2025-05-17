@@ -24,10 +24,10 @@ export class StreamService implements StreamProvider {
     /**
      * Joins a voice channel and creates a media stream
      */
-    public async joinVoiceChannel(streamOpts: StreamOptions, voice_channel_id?: string): Promise<MediaUdp> {
+    public async joinVoiceChannel(streamOpts: StreamOptions, voice_channel_id: string): Promise<MediaUdp> {
         return newrelic.startBackgroundTransaction('discord:join-voice-channel', async () => {
             newrelic.addCustomAttribute('guild_id', config.guildId);
-            newrelic.addCustomAttribute('channel_id', voice_channel_id || config.videoChannelId);
+            newrelic.addCustomAttribute('channel_id', voice_channel_id);
 
             try {
                 if (!this.streamer.client.isReady()) {
@@ -35,11 +35,10 @@ export class StreamService implements StreamProvider {
                     throw new Error('Discord client not ready');
                 }
 
-                const targetChannelId = voice_channel_id || config.videoChannelId;
-                this.logger.log(`Joining voice channel ${targetChannelId} in guild ${config.guildId}...`);
+                this.logger.log(`Joining voice channel ${voice_channel_id} in guild ${config.guildId}...`);
 
                 await newrelic.startSegment('join-voice', true, async () => {
-                    await this.streamer.joinVoice(config.guildId, targetChannelId, streamOpts);
+                    await this.streamer.joinVoice(config.guildId, voice_channel_id, streamOpts);
                 });
 
                 this.logger.log('Creating stream...');
@@ -48,7 +47,7 @@ export class StreamService implements StreamProvider {
                     return await this.streamer.createStream(streamOpts);
                 });
 
-                this.logger.log(`Successfully joined voice channel ${targetChannelId} and created stream`);
+                this.logger.log(`Successfully joined voice channel ${voice_channel_id} and created stream`);
                 this.currentStream = stream;
                 return stream;
             } catch (error) {
@@ -127,7 +126,7 @@ export class StreamService implements StreamProvider {
     /**
      * Starts streaming video content with retry mechanism
      */
-    public async startStreaming(video: string, udpConn: MediaUdp, voice_channel_id?: string): Promise<string> {
+    public async startStreaming(video: string, udpConn: MediaUdp, voice_channel_id: string): Promise<string> {
         return newrelic.startBackgroundTransaction('discord:start-streaming', async () => {
             this.logger.log("Starting to stream video:", video);
             newrelic.addCustomAttribute('video_url', video);
@@ -136,12 +135,11 @@ export class StreamService implements StreamProvider {
                 // Make sure we're still connected before starting the stream
                 if (!this.isInVoiceChannel()) {
                     this.logger.warn('Not in voice channel when trying to start stream, attempting to reconnect...', {
-                        targetChannel: voice_channel_id || config.videoChannelId
+                        targetChannel: voice_channel_id
                     });
-                    
+
                     // Usa o canal dinâmico ou fallback para o config
-                    const targetChannelId = voice_channel_id || config.videoChannelId;
-                    await this.streamer.joinVoice(config.guildId, targetChannelId, {
+                    await this.streamer.joinVoice(config.guildId, voice_channel_id, {
                         width: config.width,
                         height: config.height,
                         fps: config.fps,
