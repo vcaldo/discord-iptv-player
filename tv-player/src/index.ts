@@ -72,94 +72,109 @@ logInfo("Shutdown handlers configured");
  * Handles the play command with robust error handling and retries
  */
 async function handlePlay(title: string, url: string) {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 2000;
+    let attempt = 0;
+    let lastError: any = null;
+
     const playTransaction = newrelic.startWebTransaction('handle-play', async function() {
-        try {
-            newrelic.addCustomAttribute('videoTitle', title);
-            newrelic.addCustomAttribute('videoUrl', url);
-
-            logInfo(`Attempting to play "${title}"`, { url });
-
-            if (!discordService.isReady()) {
-                logWarn('Discord client not ready. Cannot play at the moment.');
-                return;
-            }
-
-            // Stop any current stream but don't leave the voice channel
-            logInfo('Stopping any existing stream without leaving voice channel...');
-            await stopStreamOnly();
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            let videoUrl: string;
+        while (attempt < MAX_RETRIES) {
             try {
-                await newrelic.startSegment('resolve-video-url', true, async () => {
-                    logDebug('Resolving video URL...', { originalUrl: url });
-                    videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
-                    logInfo(`Resolved video URL successfully`);
-                    logDebug(`Video URL details`, { url: videoUrl });
+                attempt++;
+                newrelic.addCustomAttribute('videoTitle', title);
+                newrelic.addCustomAttribute('videoUrl', url);
+
+                logInfo(`Attempting to play "${title}" (attempt ${attempt}/${MAX_RETRIES})`, { url });
+
+                if (!discordService.isReady()) {
+                    logWarn('Discord client not ready. Cannot play at the moment.');
+                    return;
+                }
+
+                // Stop any current stream but don't leave the voice channel
+                logInfo('Stopping any existing stream without leaving voice channel...');
+                await stopStreamOnly();
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                let videoUrl: string;
+                try {
+                    await newrelic.startSegment('resolve-video-url', true, async () => {
+                        logDebug('Resolving video URL...', { originalUrl: url });
+                        videoUrl = await YoutubeHelper.getVideoInternalUrl(url) ?? url;
+                        logInfo(`Resolved video URL successfully`);
+                        logDebug(`Video URL details`, { url: videoUrl });
+                    });
+                } catch (error) {
+                    newrelic.noticeError(error);
+                    logError('Failed to resolve video URL, using original as fallback:', error);
+                    videoUrl = url;
+                    logInfo(`Using original URL as fallback: ${videoUrl}`);
+                }
+
+                // Only join voice channel if not already in one
+                let streamUdpConn;
+                const inVoiceChannel = discordService.isInVoiceChannel();
+
+                if (!inVoiceChannel) {
+                    logInfo('Not in voice channel, joining now...');
+                    await newrelic.startSegment('join-voice-channel', true, async () => {
+                        streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                        logInfo('Successfully joined voice channel');
+                    });
+                } else {
+                    logInfo('Already in voice channel, reusing connection...');
+                    streamUdpConn = discordService.getCurrentVoiceConnection();
+                    if (!streamUdpConn) {
+                        logWarn('No existing voice connection found, joining channel again...');
+                        streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                        logInfo('Successfully joined voice channel');
+                    }
+                }
+
+                logInfo(`Setting watching status to "${title}"`);
+                discordService.setWatchingStatus(title);
+
+                logInfo('Starting video stream...');
+                await newrelic.startSegment('start-streaming', true, async () => {
+                    await discordService.startStreaming(videoUrl, streamUdpConn);
                 });
+
+                // Verify we're still in the voice channel after streaming
+                if (!discordService.isInVoiceChannel()) {
+                    logWarn('Voice channel connection lost after streaming, attempting to reconnect...');
+                    await newrelic.startSegment('reconnect-voice-channel', true, async () => {
+                        streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
+                        logInfo('Successfully reconnected to voice channel');
+                    });
+                }
+
+                logInfo(`Successfully playing "${title}"`);
+                return;
             } catch (error) {
+                lastError = error;
                 newrelic.noticeError(error);
-                logError('Failed to resolve video URL, using original as fallback:', error);
-                videoUrl = url;
-                logInfo(`Using original URL as fallback: ${videoUrl}`);
-            }
+                logError(`Error during play operation for "${title}" (attempt ${attempt}):`, error);
 
-            // Only join voice channel if not already in one
-            let streamUdpConn;
-            const inVoiceChannel = discordService.isInVoiceChannel();
+                // If error is critical, then stop completely - otherwise try to keep the connection
+                const isCriticalError = error instanceof Error &&
+                    (error.message.includes('Guild not found') ||
+                     error.message.includes('Discord client not ready'));
 
-            if (!inVoiceChannel) {
-                logInfo('Not in voice channel, joining now...');
-                await newrelic.startSegment('join-voice-channel', true, async () => {
-                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-                    logInfo('Successfully joined voice channel');
-                });
-            } else {
-                logInfo('Already in voice channel, reusing connection...');
-                streamUdpConn = discordService.getCurrentVoiceConnection();
-                if (!streamUdpConn) {
-                    logWarn('No existing voice connection found, joining channel again...');
-                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-                    logInfo('Successfully joined voice channel');
+                if (isCriticalError) {
+                    logWarn('Critical error detected, stopping playback completely');
+                    await handleStop();
+                    return;
+                } else {
+                    logInfo('Non-critical error, just stopping stream without leaving channel');
+                    await stopStreamOnly();
+                    if (attempt < MAX_RETRIES) {
+                        logInfo(`Retrying play operation in ${RETRY_DELAY_MS}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+                    }
                 }
             }
-
-            logInfo(`Setting watching status to "${title}"`);
-            discordService.setWatchingStatus(title);
-
-            logInfo('Starting video stream...');
-            await newrelic.startSegment('start-streaming', true, async () => {
-                await discordService.startStreaming(videoUrl, streamUdpConn);
-            });
-
-            // Verify we're still in the voice channel after streaming
-            if (!discordService.isInVoiceChannel()) {
-                logWarn('Voice channel connection lost after streaming, attempting to reconnect...');
-                await newrelic.startSegment('reconnect-voice-channel', true, async () => {
-                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-                    logInfo('Successfully reconnected to voice channel');
-                });
-            }
-
-            logInfo(`Successfully playing "${title}"`);
-
-        } catch (error) {
-            newrelic.noticeError(error);
-            logError(`Error during play operation for "${title}":`, error);
-
-            // If error is critical, then stop completely - otherwise try to keep the connection
-            const isCriticalError = error instanceof Error &&
-                (error.message.includes('Guild not found') ||
-                 error.message.includes('Discord client not ready'));
-
-            if (isCriticalError) {
-                logWarn('Critical error detected, stopping playback completely');
-                await handleStop();
-            } else {
-                logInfo('Non-critical error, just stopping stream without leaving channel');
-                await stopStreamOnly();
-            }
         }
+        logError(`All ${MAX_RETRIES} play attempts failed for "${title}". Giving up.`, lastError);
     });
 
     return playTransaction;
