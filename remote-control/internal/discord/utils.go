@@ -63,3 +63,41 @@ func getUserVoiceState(ctx context.Context, s *discordgo.Session, i *discordgo.I
 
 	return userVoiceState, nil
 }
+
+func getChannelMembers(ctx context.Context, s *discordgo.Session, guildID string, channelID string, nrApp *newrelic.Application) ([]*discordgo.User, error) {
+	txn := newrelic.FromContext(ctx)
+	if txn == nil && nrApp != nil {
+		txn = nrApp.StartTransaction("discord:get-channel-members")
+		defer txn.End()
+	}
+
+	segment := txn.StartSegment("findChannelMembers")
+	defer segment.End()
+
+	guild, err := s.State.Guild(guildID)
+	if err != nil {
+		if txn != nil {
+			txn.NoticeError(err)
+		}
+		return nil, fmt.Errorf("failed to get guild: %w", err)
+	}
+
+	var members []*discordgo.User
+	for _, vs := range guild.VoiceStates {
+		if vs.ChannelID == channelID {
+			user, err := s.User(vs.UserID)
+			if err != nil {
+				log.Printf("Warning: Could not get user info for %s: %v", vs.UserID, err)
+				continue
+			}
+			members = append(members, user)
+		}
+	}
+
+	if txn != nil {
+		txn.AddAttribute("channel_id", channelID)
+		txn.AddAttribute("member_count", len(members))
+	}
+
+	return members, nil
+}
