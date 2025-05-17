@@ -84,10 +84,11 @@ func getChannelMembers(ctx context.Context, s *discordgo.Session, guildID string
 
 	var members []*discordgo.User
 	for _, vs := range guild.VoiceStates {
+		log.Printf("user: %s", vs.UserID)
 		if vs.ChannelID == channelID {
 			user, err := s.User(vs.UserID)
 			if err != nil {
-				log.Printf("Warning: Could not get user info for %s: %v", vs.UserID, err)
+				log.Printf("warning: could not get user info for %s: %v", vs.UserID, err)
 				continue
 			}
 			members = append(members, user)
