@@ -94,7 +94,7 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:         discordgo.ApplicationCommandOptionString,
-					Name:         "channel_name",
+					Name:         "channel name",
 					Description:  "The channel name to search for",
 					Required:     true,
 					Autocomplete: true,

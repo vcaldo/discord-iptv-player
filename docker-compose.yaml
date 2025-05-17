@@ -28,16 +28,14 @@ services:
         max-file: "3"
 
   redis:
-    image: redis/redis-stack:latest
+    image: redis:7.4
     container_name: discord-iptv-redis
     ports:
       - "6379:6379"
-      - "8001:8001"  # RedisInsight - web UI for monitoring
     volumes:
       - redis-data:/data
     restart: unless-stopped
-    environment:
-      - REDIS_ARGS=--appendonly yes
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
