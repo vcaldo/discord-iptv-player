@@ -8,7 +8,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"github.com/newrelic/go-agent/v3/newrelic"
-	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
@@ -95,15 +94,10 @@ func isAnyoneWatching(ctx context.Context, s *discordgo.Session, v *discordgo.Vo
 		log.Printf("only one member in channel %s", channelIDToCheck)
 		if voiceChannelMembers[0].ID == botUserID {
 			log.Printf("TV Service is alone in the channel, leaving...")
-			remoteControlCommand := &models.RemoteControlCommand{
-				Command: models.StopCommand,
-			}
-			err := redisClient.RemoteControlCommand(remoteControlCommand)
-			if err != nil {
-				log.Printf("error sending disconnect command: %v", err)
-			}
+			return false
 		}
 	}
+	return true
 }
 
 func getChannelMembers(ctx context.Context, s *discordgo.Session, guildID string, channelID string, nrApp *newrelic.Application) ([]*discordgo.User, error) {
