@@ -583,6 +583,19 @@ func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int,
 	return categoryStats, err
 }
 
+func (c *Client) GetID(key string) string {
+	val, err := c.rdb.Get(key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			log.Printf("key %s not found in Redis", key)
+			return ""
+		}
+		log.Printf("error getting key %s from Redis: %v", key, err)
+		return ""
+	}
+	return val
+}
+
 func (c *Client) Close() error {
 	return c.rdb.Close()
 }

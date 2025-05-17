@@ -60,6 +60,10 @@ func main() {
 		}
 	}()
 
+	go func() {
+		discordBot.MonitorChannel(ctx, nrApp)
+	}()
+
 	<-ctx.Done()
 	log.Println("shutting down...")
 

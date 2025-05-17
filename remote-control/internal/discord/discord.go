@@ -217,3 +217,113 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 
 	return nil
 }
+
+func (b *Bot) MonitorChannel(ctx context.Context, nrApp *newrelic.Application) {
+	txn := nrApp.StartTransaction("discord:monitor-channel")
+	defer txn.End()
+
+	txn.AddAttribute("video_channel_id", b.config.DiscordVideoChannelID)
+	txn.AddAttribute("guild_id", b.config.DiscordGuildID)
+
+	ctx = newrelic.NewContext(ctx, txn)
+
+	checkChannelState := func() {
+		stateSegment := txn.StartSegment("check-channel-state")
+		defer stateSegment.End()
+
+		guild, err := b.session.State.Guild(b.config.DiscordGuildID)
+		if err != nil {
+			log.Printf("error getting guild: %v", err)
+			return
+		}
+		botUserID := b.redis.GetID("tv_player_bot_id")
+		if botUserID == "" {
+			log.Printf("warning: tv player bot ID not found in Redis")
+			return
+		}
+
+		botInChannel := false
+		for _, vs := range guild.VoiceStates {
+			if vs.UserID == botUserID && vs.ChannelID == b.config.DiscordVideoChannelID {
+				botInChannel = true
+				break
+			}
+		}
+
+		if !botInChannel {
+			log.Printf("bot is not in channel, skipping check")
+			return
+		}
+
+		userCount := 0
+		for _, vs := range guild.VoiceStates {
+			if vs.ChannelID == b.config.DiscordVideoChannelID {
+				member, err := b.session.State.Member(b.config.DiscordGuildID, vs.UserID)
+
+				if vs.UserID == botUserID {
+					log.Printf("ignoring features bot: %s", vs.UserID)
+					continue
+				}
+
+				if err != nil {
+					log.Printf("error getting member info: %v", err)
+					continue
+				}
+
+				if member.User.Bot {
+					log.Printf("skipping bot user: %s (%s)", member.User.Username, vs.UserID)
+					continue
+				}
+
+				log.Printf("counting real user: %s", member.User.Username)
+				userCount++
+			}
+		}
+
+		log.Printf("real users in channel: %d", userCount)
+
+		// Envia stop se só tiver bots no canal
+		if userCount == 0 && botInChannel {
+			txn.AddAttribute("stop_command_sent", true)
+			log.Printf("only bots remaining in channel, sending stop command")
+			remoteControlCommand := &models.RemoteControlCommand{
+				Command: models.StopCommand,
+			}
+
+			if err := b.redis.RemoteControlCommand(remoteControlCommand); err != nil {
+				log.Printf("error sending stop command: %v", err)
+			} else {
+				log.Println("stop command sent successfully")
+			}
+		}
+
+		txn.AddAttribute("bot_in_channel", botInChannel)
+		txn.AddAttribute("user_count", userCount)
+		txn.AddAttribute("tv_player_bot_id", botUserID)
+	}
+
+	checkChannelState()
+
+	// Adiciona handler para eventos futuros
+	b.session.AddHandler(func(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
+
+		txn.AddAttribute("event_user_id", v.UserID)
+		txn.AddAttribute("event_channel_id", v.ChannelID)
+		txn.AddAttribute("event_type", "voice_state_update")
+
+		// Log para debug
+		log.Printf("voicestateupdate event: userid=%s, channelid=%s", v.UserID, v.ChannelID)
+
+		// Verifica qualquer mudança relacionada ao canal monitorado
+		if v.ChannelID == b.config.DiscordVideoChannelID || // Alguém entrou no canal
+			(v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID == b.config.DiscordVideoChannelID) { // Alguém saiu do canal
+
+			log.Printf("voice state change in monitored channel, checking state...")
+			time.Sleep(60000 * time.Millisecond)
+			checkChannelState()
+		}
+	})
+
+	<-ctx.Done()
+	log.Println("stopping channel monitoring...")
+}
