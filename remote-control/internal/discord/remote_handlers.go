@@ -60,21 +60,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
-	guild, err := s.State.Guild(i.GuildID)
-	if err != nil {
-		txn.NoticeError(err)
-		return err
-	}
-
-	var userVoiceState *discordgo.VoiceState
-	for _, vs := range guild.VoiceStates {
-		if vs.UserID == i.Member.User.ID {
-			userVoiceState = vs
-			break
-		}
-	}
-
-	userVoiceState, err = getUserVoiceState(ctx, s, i, nrApp)
+	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -208,6 +194,22 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("error getting user voice state: %v", err),
+		})
+		return msgErr
+	}
+
+	if userVoiceState == nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "❌ You must be in a voice channel to use this command!",
+		})
+		return err
+	}
 
 	remoteControlCommand := &models.RemoteControlCommand{
 		Command: models.StopCommand,
