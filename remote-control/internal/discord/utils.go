@@ -8,6 +8,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"github.com/newrelic/go-agent/v3/newrelic"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
 func deregisterCommands(ctx context.Context, s *discordgo.Session) {
@@ -62,6 +64,46 @@ func getUserVoiceState(ctx context.Context, s *discordgo.Session, i *discordgo.I
 	}
 
 	return userVoiceState, nil
+}
+
+func isAnyoneWatching(ctx context.Context, s *discordgo.Session, v *discordgo.VoiceStateUpdate, redisClient *redis.Client, nrApp *newrelic.Application) bool {
+	txn := newrelic.FromContext(ctx)
+	if txn == nil && nrApp != nil {
+		txn = nrApp.StartTransaction("discord:is-anyone-watching")
+		defer txn.End()
+	}
+	segment := txn.StartSegment("isAnyoneWatching")
+	defer segment.End()
+
+	botUserID := redisClient.GetID("tv_player_bot_id")
+	if botUserID == "" {
+		log.Printf("warning: tv player bot ID not found in Redis")
+		return true
+	}
+
+	channelIDToCheck := v.ChannelID
+	if v.BeforeUpdate.ChannelID != "" {
+		channelIDToCheck = v.BeforeUpdate.ChannelID
+	}
+
+	voiceChannelMembers, err := getChannelMembers(ctx, s, v.GuildID, channelIDToCheck, nrApp)
+	if err != nil {
+		log.Printf("error getting channel members: %v", err)
+		return true
+	}
+	if len(voiceChannelMembers) == 1 {
+		log.Printf("only one member in channel %s", channelIDToCheck)
+		if voiceChannelMembers[0].ID == botUserID {
+			log.Printf("TV Service is alone in the channel, leaving...")
+			remoteControlCommand := &models.RemoteControlCommand{
+				Command: models.StopCommand,
+			}
+			err := redisClient.RemoteControlCommand(remoteControlCommand)
+			if err != nil {
+				log.Printf("error sending disconnect command: %v", err)
+			}
+		}
+	}
 }
 
 func getChannelMembers(ctx context.Context, s *discordgo.Session, guildID string, channelID string, nrApp *newrelic.Application) ([]*discordgo.User, error) {

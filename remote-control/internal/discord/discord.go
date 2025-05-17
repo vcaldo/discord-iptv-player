@@ -90,35 +90,14 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 
 		log.Printf("voicestateupdate event: userid=%s, channelid=%s", v.UserID, v.ChannelID)
 
-		botUserID := b.redis.GetID("tv_player_bot_id")
-		if botUserID == "" {
-			log.Printf("warning: tv player bot ID not found in Redis")
-			return
-		}
-
-		var channelIDToCheck string
-		if v.BeforeUpdate != nil {
-			channelIDToCheck = v.BeforeUpdate.ChannelID
-		} else {
-			channelIDToCheck = v.ChannelID
-		}
-
-		voiceChannelMembers, err := getChannelMembers(voiceCtx, s, v.GuildID, channelIDToCheck, nrApp)
-		if err != nil {
-			log.Printf("error getting channel members: %v", err)
-			return
-		}
-		log.Printf("found %d members in channel %s", len(voiceChannelMembers), channelIDToCheck)
-
-		if len(voiceChannelMembers) == 1 {
-			log.Printf("only one member in channel %s", channelIDToCheck)
-			log.Printf("members: %+v", voiceChannelMembers)
-			if voiceChannelMembers[0].ID == botUserID {
-				log.Printf("TV Service is alone in the channel, leaving...")
-				remoteControlCommand := &models.RemoteControlCommand{
+		if v.ChannelID == "" {
+			log.Printf("user %s left the channel", v.UserID)
+			if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
+				remoteCommand := &models.RemoteControlCommand{
 					Command: models.StopCommand,
 				}
-				err := b.redis.RemoteControlCommand(remoteControlCommand)
+
+				err := b.redis.RemoteControlCommand(remoteCommand)
 				if err != nil {
 					log.Printf("error sending disconnect command: %v", err)
 				}
@@ -265,64 +244,3 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 
 	return nil
 }
-
-// func (b *Bot) checkChannelState(nrApp *newrelic.Application) {
-// 	txn := nrApp.StartTransaction("discord:check-channel-state")
-// 	defer txn.End()
-
-// 	ctx := newrelic.NewContext(context.Background(), txn)
-
-// 	// Get bot ID
-// 	botUserID := b.redis.GetID("tv_player_bot_id")
-// 	if botUserID == "" {
-// 		log.Printf("warning: tv player bot ID not found in Redis")
-// 		return
-// 	}
-
-// 	// Get all members in the monitored channel
-// 	members, err := getChannelMembers(ctx, b.session, b.config.DiscordGuildID, b.config.DiscordVideoChannelID, nrApp)
-// 	if err != nil {
-// 		txn.NoticeError(err)
-// 		log.Printf("error getting channel members: %v", err)
-// 		return
-// 	}
-
-// 	memberCount := len(members)
-// 	txn.AddAttribute("channel_member_count", memberCount)
-// 	log.Printf("found %d members in channel %s", memberCount, b.config.DiscordVideoChannelID)
-
-// 	// Log details about members in the channel
-// 	if memberCount > 0 {
-// 		var usernames []string
-// 		var userIDs []string
-// 		botInChannel := false
-
-// 		for _, member := range members {
-// 			usernames = append(usernames, member.Username)
-// 			userIDs = append(userIDs, member.ID)
-
-// 			if member.ID == botUserID {
-// 				botInChannel = true
-// 			}
-// 		}
-
-// 		// Add attributes for monitoring and analytics
-// 		txn.AddAttribute("channel_members", strings.Join(usernames, ", "))
-// 		txn.AddAttribute("bot_in_channel", botInChannel)
-
-// 		log.Printf("Channel members: %s", strings.Join(usernames, ", "))
-
-// 		// Additional logic could be implemented here based on who is in the channel
-// 		// For example, stopping playback if only the bot is left in the channel
-// 		if memberCount == 1 && botInChannel {
-// 			log.Printf("Only bot is in the channel, could implement auto-disconnect here")
-// 			// Example auto-disconnect logic:
-// 			// remoteControlCommand := &models.RemoteControlCommand{
-// 			//     Command: models.StopCommand,
-// 			// }
-// 			// b.redis.RemoteControlCommand(remoteControlCommand)
-// 		}
-// 	} else {
-// 		log.Printf("No members found in monitored channel")
-// 	}
-// }
