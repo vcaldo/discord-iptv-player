@@ -56,14 +56,14 @@ export class DiscordService {
         });
     }
 
-    public async joinVoiceChannel(streamOpts: StreamOptions): Promise<MediaUdp> {
+    public async joinVoiceChannel(streamOpts: StreamOptions, voice_channel_id?: string): Promise<MediaUdp> {
         return newrelic.startSegment('join-voice-channel', true, async () => {
             if (!this.isReady()) {
                 this.logger.warn('Discord client not ready. Connecting before joining voice channel...');
                 await this.connectionManager.connect();
             }
 
-            return this.streamService.joinVoiceChannel(streamOpts);
+            return this.streamService.joinVoiceChannel(streamOpts, voice_channel_id);
         });
     }
 

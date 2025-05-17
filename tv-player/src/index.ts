@@ -71,9 +71,15 @@ logInfo("Shutdown handlers configured");
 /**
  * Handles the play command with robust error handling and retries
  */
-async function handlePlay(title: string, url: string) {
+async function handlePlay(title: string, url: string, voice_channel_id: string) {
     const playTransaction = newrelic.startWebTransaction('handle-play', async function() {
         try {
+            logInfo('handlePlay received parameters:', {
+                title,
+                urlPreview: url.substring(0, 50),
+                voice_channel_id
+            });
+
             newrelic.addCustomAttribute('videoTitle', title);
             newrelic.addCustomAttribute('videoUrl', url);
 
@@ -109,18 +115,24 @@ async function handlePlay(title: string, url: string) {
             const inVoiceChannel = discordService.isInVoiceChannel();
 
             if (!inVoiceChannel) {
-                logInfo('Not in voice channel, joining now...');
+                logInfo('Attempting to join voice channel:', {
+                    voice_channel_id,
+                    currentStatus: 'not in channel'
+                });
                 await newrelic.startSegment('join-voice-channel', true, async () => {
-                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-                    logInfo('Successfully joined voice channel');
+                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts, voice_channel_id);
+                    logInfo(`Successfully joined voice channel`, {
+                        channelId: voice_channel_id,
+                        connectionStatus: streamUdpConn ? 'connected' : 'failed'
+                    });
                 });
             } else {
                 logInfo('Already in voice channel, reusing connection...');
                 streamUdpConn = discordService.getCurrentVoiceConnection();
                 if (!streamUdpConn) {
-                    logWarn('No existing voice connection found, joining channel again...');
-                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts);
-                    logInfo('Successfully joined voice channel');
+                    logWarn(`No existing voice connection found, joining channel ${voice_channel_id} again...`);
+                    streamUdpConn = await discordService.joinVoiceChannel(streamOpts, voice_channel_id); // Passa o voice_channel_id
+                    logInfo(`Successfully joined voice channel ${voice_channel_id}`);
                 }
             }
 
@@ -270,7 +282,16 @@ async function handleStop() {
 async function handleMessage(message: RedisMessage) {
     return newrelic.startBackgroundTransaction('handle-message', 'Redis', async function() {
         try {
-            const { command, title, url } = message;
+            const { command, title, url, voice_channel_id } = message;
+
+            // Adiciona log detalhado da mensagem recebida
+            logInfo('Received Redis message with details:', {
+                command,
+                title,
+                url,
+                voice_channel_id,
+                rawMessage: JSON.stringify(message)
+            });
 
             newrelic.addCustomAttribute('command', command || 'none');
             if (title) newrelic.addCustomAttribute('title', title);
@@ -278,7 +299,8 @@ async function handleMessage(message: RedisMessage) {
 
             logInfo(`Received command: ${command}`, {
                 channel: title || 'N/A',
-                url: url || 'N/A'
+                url: url || 'N/A',
+                voiceChannelId: voice_channel_id
             });
 
             if (!command) {
@@ -291,11 +313,19 @@ async function handleMessage(message: RedisMessage) {
                     if (!title || !url) {
                         logError("Play command missing required parameters", {
                             title: title || 'missing',
-                            url: url || 'missing'
+                            url: url || 'missing',
+                            voiceChannelId: voice_channel_id || 'missing'
                         });
                         return;
                     }
-                    await handlePlay(title, url);
+                    
+                    const channelId = message.voice_channel_id; 
+                    logInfo('Calling handlePlay with params:', {
+                        title,
+                        urlPreview: url.substring(0, 50),
+                        voiceChannelId: voice_channel_id
+                    });
+                    await handlePlay(title, url, channelId);
                     break;
 
                 case "stop":

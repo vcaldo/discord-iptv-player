@@ -60,6 +60,29 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
+	// Verificar canal de voz do usuário
+	guild, err := s.State.Guild(i.GuildID)
+	if err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+
+	var userVoiceState *discordgo.VoiceState
+	for _, vs := range guild.VoiceStates {
+		if vs.UserID == i.Member.User.ID {
+			log.Printf("Achei o usuario %s no canal de voz %s", i.Member.User.ID, vs.ChannelID)
+			userVoiceState = vs
+			break
+		}
+	}
+
+	if userVoiceState == nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "❌ You must be in a voice channel to use this command!",
+		})
+		return err
+	}
+
 	options := i.ApplicationCommandData().Options
 	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
 	for _, opt := range options {
@@ -90,9 +113,10 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("channel_name", channel.Name)
 
 	remoteControlCommand := &models.RemoteControlCommand{
-		Command: models.PlayCommand,
-		Title:   channel.Name,
-		Url:     channel.Url,
+		Command:        models.PlayCommand,
+		Title:          channel.Name,
+		Url:            channel.Url,
+		VoiceChannelID: userVoiceState.ChannelID, // Adiciona o ID do canal de voz
 	}
 
 	err = b.redis.RemoteControlCommand(remoteControlCommand)
