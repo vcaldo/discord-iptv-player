@@ -99,8 +99,11 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 			log.Printf("error getting channel members: %v", err)
 			return
 		}
+		log.Printf("found %d members in channel %s", len(voiceChannelMembers), v.ChannelID)
 
 		if len(voiceChannelMembers) == 1 {
+			log.Printf("only one member in channel %s", v.ChannelID)
+			log.Printf("members: %+v", voiceChannelMembers)
 			if voiceChannelMembers[0].ID == botUserID {
 				log.Printf("TV Service is alone in the channel, leaving...")
 				remoteControlCommand := &models.RemoteControlCommand{
