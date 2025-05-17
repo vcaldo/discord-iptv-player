@@ -280,7 +280,6 @@ async function handleMessage(message: RedisMessage) {
         try {
             const { command, title, url, voice_channel_id } = message;
 
-            // Adiciona log detalhado da mensagem recebida
             logInfo('Received Redis message with details:', {
                 command,
                 title,
