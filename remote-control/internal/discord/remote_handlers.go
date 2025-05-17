@@ -60,7 +60,6 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
-	// Verificar canal de voz do usuário
 	guild, err := s.State.Guild(i.GuildID)
 	if err != nil {
 		txn.NoticeError(err)
@@ -70,10 +69,18 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	var userVoiceState *discordgo.VoiceState
 	for _, vs := range guild.VoiceStates {
 		if vs.UserID == i.Member.User.ID {
-			log.Printf("Achei o usuario %s no canal de voz %s", i.Member.User.ID, vs.ChannelID)
 			userVoiceState = vs
 			break
 		}
+	}
+
+	userVoiceState, err = getUserVoiceState(ctx, s, i, nrApp)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("error getting user voice state: %v", err),
+		})
+		return msgErr
 	}
 
 	if userVoiceState == nil {
@@ -116,7 +123,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		Command:        models.PlayCommand,
 		Title:          channel.Name,
 		Url:            channel.Url,
-		VoiceChannelID: userVoiceState.ChannelID, // Adiciona o ID do canal de voz
+		VoiceChannelID: userVoiceState.ChannelID,
 	}
 
 	err = b.redis.RemoteControlCommand(remoteControlCommand)
@@ -128,7 +135,6 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		return msgErr
 	}
 
-	// Use followup message since we already acknowledged the interaction
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Content: fmt.Sprintf("Playing channel: %s - %s", channel.ID, channel.Name),
 	})
@@ -153,7 +159,6 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 	if opt, ok := optionMap["url"]; ok {
 		youtubeURL = opt.StringValue()
 	} else {
-		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 			Content: "Please specify a YouTube URL to play",
 		})

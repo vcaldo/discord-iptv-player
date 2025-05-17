@@ -74,14 +74,10 @@ logInfo("Shutdown handlers configured");
 async function handlePlay(title: string, url: string, voice_channel_id: string) {
     const playTransaction = newrelic.startWebTransaction('handle-play', async function() {
         try {
-            logInfo('handlePlay received parameters:', {
-                title,
-                urlPreview: url.substring(0, 50),
-                voice_channel_id
-            });
 
             newrelic.addCustomAttribute('videoTitle', title);
             newrelic.addCustomAttribute('videoUrl', url);
+            newrelic.addCustomAttribute('voiceChannelId', voice_channel_id);
 
             logInfo(`Attempting to play "${title}"`, { url });
 
@@ -318,8 +314,8 @@ async function handleMessage(message: RedisMessage) {
                         });
                         return;
                     }
-                    
-                    const channelId = message.voice_channel_id; 
+
+                    const channelId = message.voice_channel_id;
                     logInfo('Calling handlePlay with params:', {
                         title,
                         urlPreview: url.substring(0, 50),
