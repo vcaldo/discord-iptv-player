@@ -293,4 +293,17 @@ export class RedisService {
     public isReady(): boolean {
         return this.isConnected && this.redis.status === 'ready';
     }
+
+    /**
+     * Sets a value in Redis
+     * @param key The key to set
+     * @param value The value to store
+     */
+    public async set(key: string, value: string): Promise<void> {
+        try {
+            await this.redis.set(key, value);
+        } catch (error) {
+            throw new Error(`Failed to set Redis key ${key}: ${error}`);
+        }
+    }
 }

@@ -78,6 +78,31 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 		}
 	})
 
+	b.session.AddHandler(func(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
+		voiceTxn := nrApp.StartTransaction("discord:voice-state-update")
+		defer voiceTxn.End()
+
+		voiceTxn.AddAttribute("event_user_id", v.UserID)
+		voiceTxn.AddAttribute("event_channel_id", v.ChannelID)
+		voiceTxn.AddAttribute("event_type", "voice_state_update")
+
+		voiceCtx := newrelic.NewContext(ctx, voiceTxn)
+
+		log.Printf("voicestateupdate event: userid=%s, channelid=%s", v.UserID, v.ChannelID)
+
+		if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
+			remoteCommand := &models.RemoteControlCommand{
+				Command: models.StopCommand,
+			}
+
+			err := b.redis.RemoteControlCommand(remoteCommand)
+			if err != nil {
+				log.Printf("error sending disconnect command: %v", err)
+			}
+		}
+
+	})
+
 	if err := b.session.Open(); err != nil {
 		txn.NoticeError(err)
 		txn.End()
@@ -106,7 +131,6 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 	return closeErr
 }
 
-// handleAutocomplete handles autocomplete interactions for Discord slash commands
 func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-autocomplete")
 	defer txn.End()

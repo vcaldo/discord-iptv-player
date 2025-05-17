@@ -6,6 +6,7 @@ import { DiscordConnectionManager } from "./discord/connection-manager.js";
 import { StreamService } from "./discord/stream-service.js";
 import { Logger } from "../utils/logger.js";
 import newrelic from 'newrelic';
+import { RedisService } from "./redis.js";
 
 /**
  * Main Discord service that coordinates connection, status management, and streaming
@@ -13,6 +14,7 @@ import newrelic from 'newrelic';
 export class DiscordService {
     private client: Client;
     private logger: Logger;
+    private redisService: RedisService;
     private connectionManager: ConnectionManager;
     private statusManager: StatusProvider;
     private streamService: StreamProvider;
@@ -20,6 +22,7 @@ export class DiscordService {
     constructor() {
         this.logger = new Logger('DiscordService');
         this.client = new Client();
+        this.redisService = new RedisService();
 
         this.statusManager = new StatusManager(this.client);
         this.connectionManager = new DiscordConnectionManager(
@@ -27,6 +30,21 @@ export class DiscordService {
             () => this.statusManager.setIdleStatus()
         );
         this.streamService = new StreamService(this.client);
+
+        this.client.on('ready', () => {
+            const botId = this.client.user?.id;
+            if (botId) {
+                newrelic.startSegment('save-bot-id-to-redis', true, async () => {
+                    try {
+                        await this.redisService.set('tv_player_bot_id', botId);
+                        this.logger.log(`Bot ID ${botId} saved to Redis successfully`);
+                    } catch (error) {
+                        newrelic.noticeError(error);
+                        this.logger.error('Failed to save bot ID to Redis:', error);
+                    }
+                });
+            }
+        });
 
         this.initialize();
     }
