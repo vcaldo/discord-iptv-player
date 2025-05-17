@@ -132,7 +132,7 @@ export class StreamService implements StreamProvider {
             newrelic.addCustomAttribute('video_url', video);
 
             // Always inject a custom User-Agent for IPTV
-            const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Discord-iptv-player/1.0 Chrome/89.0.4389.82 Safari/537.36";
+            const userAgent = "VLC/3.0.18 LibVLC/3.0.18";
             // ffmpeg supports passing headers via URL options: https://ffmpeg.org/ffmpeg-protocols.html#http
             // This will work for most HTTP/HTTPS streams
             let videoWithUserAgent = video;
