@@ -90,19 +90,17 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 
 		log.Printf("voicestateupdate event: userid=%s, channelid=%s", v.UserID, v.ChannelID)
 
-		if v.ChannelID == "" {
-			log.Printf("user %s left the channel", v.UserID)
-			if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
-				remoteCommand := &models.RemoteControlCommand{
-					Command: models.StopCommand,
-				}
+		if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
+			remoteCommand := &models.RemoteControlCommand{
+				Command: models.StopCommand,
+			}
 
-				err := b.redis.RemoteControlCommand(remoteCommand)
-				if err != nil {
-					log.Printf("error sending disconnect command: %v", err)
-				}
+			err := b.redis.RemoteControlCommand(remoteCommand)
+			if err != nil {
+				log.Printf("error sending disconnect command: %v", err)
 			}
 		}
+
 	})
 
 	if err := b.session.Open(); err != nil {
