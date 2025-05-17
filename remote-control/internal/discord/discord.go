@@ -131,7 +131,6 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 	return closeErr
 }
 
-// handleAutocomplete handles autocomplete interactions for Discord slash commands
 func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-autocomplete")
 	defer txn.End()
