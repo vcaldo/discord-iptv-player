@@ -215,7 +215,7 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 		Command: models.StopCommand,
 	}
 
-	err := b.redis.RemoteControlCommand(remoteControlCommand)
+	err = b.redis.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
