@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -797,8 +798,16 @@ func (c *Client) SearchChannelsByNameUnlimited(guildID, playlistName, searchTerm
 			// If search term is empty or too short, return all channels
 			query = "*"
 		} else {
-			// Use fuzzy search for terms with 2+ characters
-			query = fmt.Sprintf("@name:%%%s%%", searchTerm)
+			// Escape special characters in the search term
+			// Redis search special chars: | & ^ " ~ ( ) @ : . - + = < > ! \
+			escapeChars := []string{"|", "&", "^", "\"", "~", "(", ")", "@", ":", ".", "-", "+", "=", "<", ">", "!", "\\"}
+			escapedTerm := searchTerm
+			for _, char := range escapeChars {
+				escapedTerm = strings.ReplaceAll(escapedTerm, char, "\\"+char)
+			}
+
+			// Use fuzzy search for terms with 2+ characters with escaped term
+			query = fmt.Sprintf("@name:%%%s%%", escapedTerm)
 		}
 
 		// Perform the search without the 25-result limit
