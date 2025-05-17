@@ -131,6 +131,16 @@ export class StreamService implements StreamProvider {
             this.logger.log("Starting to stream video:", video);
             newrelic.addCustomAttribute('video_url', video);
 
+            // Always inject a custom User-Agent for IPTV
+            const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Discord-iptv-player/1.0 Chrome/89.0.4389.82 Safari/537.36";
+            // ffmpeg supports passing headers via URL options: https://ffmpeg.org/ffmpeg-protocols.html#http
+            // This will work for most HTTP/HTTPS streams
+            let videoWithUserAgent = video;
+            if (video.startsWith('http://') || video.startsWith('https://')) {
+                // Append user-agent as ffmpeg URL option
+                videoWithUserAgent = `${video}?user_agent=${encodeURIComponent(userAgent)}`;
+            }
+
             try {
                 // Make sure we're still connected before starting the stream
                 if (!this.isInVoiceChannel()) {
@@ -173,14 +183,13 @@ export class StreamService implements StreamProvider {
                 }
 
                 await newrelic.startSegment('setup-streaming', true, async () => {
-                    // Ensure voice status is set properly
                     udpConn.mediaConnection.setSpeaking(true);
                     udpConn.mediaConnection.setVideoStatus(true);
                 });
 
                 const res = await newrelic.startSegment('stream-video', true, async () => {
-                    // We'll use the streamLivestreamVideo function but make sure to handle any disconnections
-                    return await streamLivestreamVideo(video, udpConn);
+                    // Use the video URL with injected user-agent
+                    return await streamLivestreamVideo(videoWithUserAgent, udpConn);
                 });
 
                 this.logger.log("Successfully finished streaming video:", res);
