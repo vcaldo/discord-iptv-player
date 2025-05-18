@@ -74,7 +74,7 @@ func isAnyoneWatching(ctx context.Context, s *discordgo.Session, v *discordgo.Vo
 	segment := txn.StartSegment("isAnyoneWatching")
 	defer segment.End()
 
-	botUserID := redisClient.GetKey("tv_player_bot_id")
+	botUserID := redisClient.GetID("tv_player_bot_id")
 	if botUserID == "" {
 		log.Printf("warning: tv player bot ID not found in Redis")
 		return true

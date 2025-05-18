@@ -2,14 +2,11 @@ package m3u
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
-	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
@@ -17,8 +14,17 @@ func InitializePlaylist(ctx context.Context, config *config.Config, redisClient 
 	txn := nrApp.StartTransaction("m3u:initialize-playlist")
 	defer txn.End()
 
-	segment := txn.StartSegment("check-playlist-in-redis")
+	// Default guild ID - can be changed if you need to store playlists per guild
+	// const defaultGuildID = "default"
+	// const defaultPlaylistName = "default"
 
+	// // If no playlist URL is configured, nothing to do
+	// if config.PlaylistURL == "" {
+	// 	log.Println("no playlist url configured, skipping playlist initialization")
+	// 	return nil
+	// }
+
+	segment := txn.StartSegment("check-playlist-in-redis")
 	// Check if playlist exists in Redis
 	existingPlaylist, err := redisClient.GetPlaylist(config.DiscordGuildID, config.PlaylistName)
 	segment.End()
@@ -46,52 +52,14 @@ func InitializePlaylist(ctx context.Context, config *config.Config, redisClient 
 		return nil
 	}
 
-	// Parse multiple playlist URLs if present
-	playlistURLs := strings.Split(config.PlaylistURL, "|")
-	// Trim spaces from each name
-	for i, url := range playlistURLs {
-		playlistURLs[i] = strings.TrimSpace(url)
-
-	}
-
-	// Log if multiple playlists are specified
-
-	log.Printf("found %d playlists to process", len(playlistURLs))
-
-	// Download and parse each playlist}}
-	downloadSegment := txn.StartSegment("download-playlists")
-	var allPlaylists []*models.Playlist
-	var totalChannels int
-
-	for _, url := range playlistURLs {
-		playlist, err := DownloadPlaylist(ctx, url, config.PlaylistName, nrApp)
-		if err != nil {
-			log.Printf("error downloading playlist from %s: %v", url, err)
-			txn.NoticeError(err)
-			continue // Skip this playlist but try others
-		}
-
-		log.Printf("downloaded playlist from %s with %d channels", url, len(playlist.Channels))
-		allPlaylists = append(allPlaylists, playlist)
-		totalChannels += len(playlist.Channels)
-	}
+	// Download and parse the playlist
+	downloadSegment := txn.StartSegment("download-playlist")
+	playlist, err := GetPlaylist(ctx, config.PlaylistURL, config.PlaylistName, nrApp)
 	downloadSegment.End()
 
-	if len(allPlaylists) == 0 {
-		err := fmt.Errorf("failed to download any playlists")
+	if err != nil {
 		txn.NoticeError(err)
 		return err
-	}
-
-	playlist := &models.Playlist{
-		Name:     config.PlaylistName,
-		Channels: make([]models.TvChannel, 0, totalChannels),
-		Source:   config.PlaylistURL,
-		Updated:  time.Now(),
-	}
-
-	for _, p := range allPlaylists {
-		playlist.Channels = append(playlist.Channels, p.Channels...)
 	}
 
 	txn.AddAttribute("playlist.channels_count", len(playlist.Channels))

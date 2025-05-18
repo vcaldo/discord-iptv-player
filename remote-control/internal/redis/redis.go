@@ -583,7 +583,7 @@ func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int,
 	return categoryStats, err
 }
 
-func (c *Client) GetKey(key string) string {
+func (c *Client) GetID(key string) string {
 	val, err := c.rdb.Get(key).Result()
 	if err != nil {
 		if err == redis.Nil {

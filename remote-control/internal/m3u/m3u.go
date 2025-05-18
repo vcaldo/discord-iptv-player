@@ -17,8 +17,8 @@ import (
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
-func DownloadPlaylist(ctx context.Context, url string, name string, nrApp *newrelic.Application) (*models.Playlist, error) {
-	txn := nrApp.StartTransaction("m3u:download-playlist")
+func GetPlaylist(ctx context.Context, url string, name string, nrApp *newrelic.Application) (*models.Playlist, error) {
+	txn := nrApp.StartTransaction("m3u:get-playlist")
 	defer txn.End()
 
 	content, err := downloadPlaylist(ctx, url)
