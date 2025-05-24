@@ -9,4 +9,5 @@ const (
 	CategoriesCommand             string = "categories"
 	ListChannelsinCategoryCommand string = "list"
 	RestartCommand                string = "restart"
+	PlaylistCommand               string = "playlist"
 )

@@ -161,10 +161,9 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 		}
 
 		txn.AddAttribute("input_value", focusedValue)
-
 		// Get categories from Redis
 		getSegment := txn.StartSegment("get_categories")
-		categories, err := b.redis.GetCategories(config.DiscordGuildID, config.PlaylistName)
+		categories, err := b.redis.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
 		if err != nil {
 			getSegment.End()
 			txn.NoticeError(err)
@@ -174,7 +173,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 
 		// Get category stats to show channel counts
 		getStatsSegment := txn.StartSegment("get_category_stats")
-		categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, config.PlaylistName)
+		categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, b.getCurrentPlaylist(config))
 		if err != nil {
 			getStatsSegment.End()
 			txn.NoticeError(err)
@@ -230,6 +229,91 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 			},
 		})
 		respondSegment.End()
+		if err != nil {
+			txn.NoticeError(err)
+			return err
+		}
+
+		return nil
+
+	case models.PlaylistCommand:
+		// Find the focused option (the one user is currently typing in)
+		var focused *discordgo.ApplicationCommandInteractionDataOption
+		var focusedValue string
+
+		for _, opt := range data.Options {
+			if opt.Focused {
+				focused = opt
+				focusedValue = opt.StringValue()
+				break
+			}
+		}
+
+		if focused == nil || focused.Name != "name" {
+			return nil // Not the option we're handling
+		}
+
+		txn.AddAttribute("input_value", focusedValue) // Load playlist configurations
+		loadSegment := txn.StartSegment("load_playlists")
+		playlists, err := b.loadPlaylistsConfig(config.PlaylistsConfigPath)
+		if err != nil {
+			loadSegment.End()
+			txn.NoticeError(err)
+			log.Printf("Warning: couldn't load playlist configs: %v", err)
+			return err
+		}
+		loadSegment.End()
+
+		// Filter playlists based on user input
+		filterSegment := txn.StartSegment("filter_playlists")
+		var choices []*discordgo.ApplicationCommandOptionChoice
+
+		// Lowercase the input for case-insensitive matching
+		focusedValueLower := strings.ToLower(focusedValue)
+
+		// Add matching playlists to choices (limit to 25 as per Discord's limit)
+		maxChoices := 25
+		for _, playlist := range playlists.Playlists {
+			// If we have 25 choices already, stop processing
+			if len(choices) >= maxChoices {
+				break
+			}
+
+			// Only add enabled playlists and if it matches the user's input (empty input matches all)
+			if playlist.Enabled && (focusedValue == "" ||
+				strings.Contains(strings.ToLower(playlist.Name), focusedValueLower) ||
+				strings.Contains(strings.ToLower(playlist.DisplayName), focusedValueLower)) {
+
+				// Use display name if available, otherwise use name
+				displayName := playlist.DisplayName
+				if displayName == "" {
+					displayName = playlist.Name
+				}
+
+				// Add description if available
+				if playlist.Description != "" {
+					displayName = fmt.Sprintf("%s - %s", displayName, playlist.Description)
+				}
+
+				choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
+					Name:  displayName,
+					Value: playlist.Name, // Use the actual playlist name as the value
+				})
+			}
+		}
+		filterSegment.End()
+
+		txn.AddAttribute("choices_count", len(choices))
+
+		// Respond with choices
+		respondSegment := txn.StartSegment("send_response")
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+			Data: &discordgo.InteractionResponseData{
+				Choices: choices,
+			},
+		})
+		respondSegment.End()
 
 		if err != nil {
 			txn.NoticeError(err)
@@ -240,4 +324,18 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 	}
 
 	return nil
+}
+
+// getCurrentPlaylist returns the current playlist name from Redis, or "default" if not set
+func (b *Bot) getCurrentPlaylist(config *config.Config) string {
+	currentPlaylist, err := b.redis.GetCurrentPlaylist(config.DiscordGuildID)
+	if err != nil || currentPlaylist == "" {
+		return "default"
+	}
+	return currentPlaylist
+}
+
+// loadPlaylistsConfig loads playlist configurations from the config path
+func (b *Bot) loadPlaylistsConfig(configPath string) (*config.PlaylistsConfig, error) {
+	return config.LoadPlaylistsConfig(configPath)
 }

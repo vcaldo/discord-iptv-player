@@ -10,9 +10,17 @@ import (
 )
 
 func (b *Bot) commands() []*discordgo.ApplicationCommand {
-	playlist, err := b.redis.GetPlaylist(b.config.DiscordGuildID, b.config.PlaylistName)
+	// Get current playlist name from Redis
+	currentPlaylistName, err := b.redis.GetCurrentPlaylist(b.config.DiscordGuildID)
 	if err != nil {
-		log.Printf("error getting playlist from Redis: %v", err)
+		log.Printf("error getting current playlist from Redis: %v", err)
+		// Fall back to a default value
+		currentPlaylistName = "default"
+	}
+
+	playlist, err := b.redis.GetPlaylist(b.config.DiscordGuildID, currentPlaylistName)
+	if err != nil {
+		log.Printf("error getting playlist '%s' from Redis: %v", currentPlaylistName, err)
 	}
 
 	playlistLen := float64(50000)
@@ -21,7 +29,7 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 		log.Printf("warning: could not get playlist to determine length: %v", err)
 	} else {
 		playlistLen = float64(len(playlist.Channels))
-		log.Printf("setting tv command max channel to %d based on playlist length", int64(playlistLen))
+		log.Printf("setting tv command max channel to %d based on playlist '%s' length", int64(playlistLen), currentPlaylistName)
 	}
 
 	return []*discordgo.ApplicationCommand{
@@ -78,13 +86,25 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        models.SearchCommand,
-			Description: "Search for TV channels by name",
-			Options: []*discordgo.ApplicationCommandOption{
+			Description: "Search for TV channels by name", Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "name",
 					Description: "The channel name to search for",
 					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        models.PlaylistCommand,
+			Description: "Switch to a different playlist",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:         discordgo.ApplicationCommandOptionString,
+					Name:         "name",
+					Description:  "The playlist to switch to",
+					Required:     true,
+					Autocomplete: true,
 				},
 			},
 		},

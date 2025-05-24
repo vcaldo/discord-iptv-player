@@ -26,7 +26,6 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		txn.NoticeError(err)
 		return fmt.Errorf("failed to acknowledge interaction: %w", err)
 	}
-
 	switch i.ApplicationCommandData().Name {
 	case models.TvCommand:
 		return b.handleTvCommand(ctx, s, i, config, nrApp)
@@ -40,6 +39,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleCategoriesCommand(ctx, s, i, config, nrApp)
 	case models.ListChannelsinCategoryCommand:
 		return b.handleListChannelsInCategoryCommand(ctx, s, i, config, nrApp)
+	case models.PlaylistCommand:
+		return b.handlePlaylistCommand(ctx, s, i, config, nrApp)
 	case models.RestartCommand:
 		return b.handleRestartCommand(ctx, s, i, config, nrApp)
 	default:
@@ -92,8 +93,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		})
 		return err
 	}
-
-	channel, err := b.redis.GetChannel(config.DiscordGuildID, config.PlaylistName, channelID)
+	channel, err := b.redis.GetChannel(config.DiscordGuildID, b.getCurrentPlaylist(config), channelID)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -259,10 +259,9 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 		return err
 	}
 	parseSegment.End()
-
 	// Get the playlist
 	getPlaylistSegment := txn.StartSegment("get_playlist")
-	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, config.PlaylistName)
+	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, b.getCurrentPlaylist(config))
 	if err != nil {
 		getPlaylistSegment.End()
 		txn.NoticeError(err)
@@ -384,10 +383,9 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
-
 	// Get categories directly from Redis
 	getSegment := txn.StartSegment("get_categories")
-	categories, err := b.redis.GetCategories(config.DiscordGuildID, config.PlaylistName)
+	categories, err := b.redis.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
 	if err != nil {
 		getSegment.End()
 		txn.NoticeError(err)
@@ -400,7 +398,7 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 
 	// Get category counts
 	getStatsSegment := txn.StartSegment("get_category_stats")
-	categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, config.PlaylistName)
+	categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, b.getCurrentPlaylist(config))
 	if err != nil {
 		getStatsSegment.End()
 		txn.NoticeError(err)
@@ -532,10 +530,9 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 		return err
 	}
 	parseSegment.End()
-
 	// Get channels for the specified category
 	getChannelsSegment := txn.StartSegment("get_channels_by_category")
-	channels, err := b.redis.GetChannelsByCategory(config.DiscordGuildID, config.PlaylistName, category)
+	channels, err := b.redis.GetChannelsByCategory(config.DiscordGuildID, b.getCurrentPlaylist(config), category)
 	if err != nil {
 		getChannelsSegment.End()
 		txn.NoticeError(err)
@@ -635,29 +632,104 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 	return err
 }
 
-func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
-	txn := nrApp.StartTransaction("discord:handle-restart-command")
+func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, cfg *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-playlist-command")
 	defer txn.End()
-
 	ctx = newrelic.NewContext(ctx, txn)
 
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
-	remoteControlCommand := &models.RemoteControlCommand{
-		Command: models.StopCommand,
+	options := i.ApplicationCommandData().Options
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
 	}
 
-	err := b.redis.RemoteControlCommand(remoteControlCommand)
+	var playlistName string
+	if opt, ok := optionMap["name"]; ok {
+		playlistName = opt.StringValue()
+	} else {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "Please specify a playlist name",
+		})
+		return err
+	}
+
+	// Load playlist configurations to validate the playlist exists
+	playlists, err := config.LoadPlaylistsConfig(cfg.PlaylistsConfigPath)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("error restarting bot: %v", err),
+			Content: fmt.Sprintf("Error loading playlist configurations: %v", err),
 		})
 		return msgErr
 	}
 
-	remoteControlCommand = &models.RemoteControlCommand{
+	// Check if the playlist exists
+	playlistExists := false
+	for _, playlist := range playlists.Playlists {
+		if playlist.Name == playlistName {
+			playlistExists = true
+			break
+		}
+	}
+
+	if !playlistExists {
+		availableNames := make([]string, 0, len(playlists.Playlists))
+		for _, playlist := range playlists.Playlists {
+			availableNames = append(availableNames, playlist.Name)
+		}
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Playlist '%s' not found. Available playlists: %s", playlistName, strings.Join(availableNames, ", ")),
+		})
+		return err
+	}
+
+	// Set the current playlist in Redis
+	err = b.redis.SetCurrentPlaylist(cfg.DiscordGuildID, playlistName)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error setting current playlist: %v", err),
+		})
+		return msgErr
+	}
+
+	txn.AddAttribute("playlist_name", playlistName)
+
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: fmt.Sprintf("✅ Current playlist set to: **%s**", playlistName),
+	})
+	return err
+}
+
+func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-restart-command")
+	defer txn.End()
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
+	if err != nil {
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("error getting user voice state: %v", err),
+		})
+		return msgErr
+	}
+
+	if userVoiceState == nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "❌ You must be in a voice channel to use this command!",
+		})
+		return err
+	}
+
+	// Send restart command
+	remoteControlCommand := &models.RemoteControlCommand{
 		Command: models.RestartCommand,
 	}
 
@@ -670,9 +742,6 @@ func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i 
 		return msgErr
 	}
 
-	// Use followup message since we already acknowledged the interaction
-	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: "Bot is restarting... Please wait a moment.",
-	})
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{Content: "Bot is restarting... Please wait a moment."})
 	return err
 }

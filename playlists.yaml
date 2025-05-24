@@ -1,0 +1,25 @@
+# Playlists Configuration
+playlists:
+  - name: "movies"
+    display_name: "Marroquina Movies"
+    url: "http://prosetiptv.xyz/get.php?username=ulv6b50zne&password=n2h68vkdnj&type=m3u_plus&output=ts"
+    description: "Marroquina 300k channels, só funciona filmes"
+    max_age_days: 15
+    enabled: false
+
+  - name: "world-tv"
+    display_name: "Live World TV"
+    url: "http://mag.spainott.net:80/get.php?username=DTVYLPBOWA&password=AZ5ZMJHAIA&output=ts&type=m3u_plus"
+    description: "Canais de TV de todo o mundo"
+    max_age_days: 15
+    enabled: true
+
+  - name: "brasileira"
+    display_name: "Brasileira"
+    url: "http://iptvagora.ddns.net:25461/get.php?username=875764155&password=713162289&type=m3u_plus&output=hls"
+    description: "Canais Brasileiros, filmes e séries dublados"
+    max_age_days: 15
+    enabled: true
+
+settings:
+  default_playlist: "brasileira"

@@ -6,6 +6,8 @@ services:
     restart: unless-stopped
     env_file:
       - remote-control/.env
+    volumes:
+      - ./playlists.yaml:/app/playlists.yaml
     depends_on:
       - redis
 
