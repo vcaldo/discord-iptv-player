@@ -16,9 +16,8 @@ import (
 func InitializePlaylists(ctx context.Context, cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("m3u:initialize-playlists")
 	defer txn.End()
-
 	// Load playlist configurations
-	playlistsConfig, err := config.LoadPlaylistsConfig(cfg.PlaylistsConfigPath)
+	playlistsConfig, err := LoadPlaylistsConfig(cfg.PlaylistsConfigPath)
 	if err != nil {
 		txn.NoticeError(err)
 		return fmt.Errorf("failed to load playlists config: %w", err)
@@ -65,7 +64,7 @@ func InitializePlaylists(ctx context.Context, cfg *config.Config, redisClient *r
 }
 
 // initializeSinglePlaylist initializes a single playlist from its configuration
-func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application, playlistConfig config.PlaylistConfig) error {
+func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application, playlistConfig models.PlaylistConfig) error {
 	txn := nrApp.StartTransaction("m3u:initialize-single-playlist")
 	defer txn.End()
 
@@ -142,7 +141,7 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 }
 
 // findDefaultPlaylist finds the default playlist from the configuration
-func findDefaultPlaylist(playlistsConfig *config.PlaylistsConfig) string {
+func findDefaultPlaylist(playlistsConfig *models.PlaylistsConfig) string {
 	// First, check if there's a configured default playlist
 	if playlistsConfig.Settings.DefaultPlaylist != "" {
 		// Verify it's enabled

@@ -10,6 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
@@ -655,9 +656,8 @@ func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i
 		})
 		return err
 	}
-
 	// Load playlist configurations to validate the playlist exists
-	playlists, err := config.LoadPlaylistsConfig(cfg.PlaylistsConfigPath)
+	playlists, err := m3u.LoadPlaylistsConfig(cfg.PlaylistsConfigPath)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{

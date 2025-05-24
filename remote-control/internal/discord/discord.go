@@ -10,6 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
@@ -336,6 +337,6 @@ func (b *Bot) getCurrentPlaylist(config *config.Config) string {
 }
 
 // loadPlaylistsConfig loads playlist configurations from the config path
-func (b *Bot) loadPlaylistsConfig(configPath string) (*config.PlaylistsConfig, error) {
-	return config.LoadPlaylistsConfig(configPath)
+func (b *Bot) loadPlaylistsConfig(configPath string) (*models.PlaylistsConfig, error) {
+	return m3u.LoadPlaylistsConfig(configPath)
 }
