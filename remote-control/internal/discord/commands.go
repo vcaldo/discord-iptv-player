@@ -10,19 +10,6 @@ import (
 )
 
 func (b *Bot) commands() []*discordgo.ApplicationCommand {
-	// Get current playlist name from Redis
-	currentPlaylistName, err := b.redis.GetCurrentPlaylist(b.config.DiscordGuildID)
-	if err != nil {
-		log.Printf("error getting current playlist from Redis: %v", err)
-		// Fall back to a default value
-		currentPlaylistName = "default"
-	}
-
-	playlist, err := b.redis.GetPlaylist(b.config.DiscordGuildID, currentPlaylistName)
-	if err != nil {
-		log.Printf("error getting playlist '%s' from Redis: %v", currentPlaylistName, err)
-	}
-
 	return []*discordgo.ApplicationCommand{
 		{
 			Name:        models.TvCommand,
