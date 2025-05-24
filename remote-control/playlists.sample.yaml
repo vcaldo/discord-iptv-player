@@ -41,14 +41,6 @@ playlists:
     max_age_days: 1
     enabled: false
 
-  # Local test playlist using file path
-  - name: "local"
-    display_name: "Local Test"
-    url: "file:///path/to/local/playlist.m3u"
-    description: "Local playlist file for development testing"
-    max_age_days: 30
-    enabled: false
-
   # News and documentaries
   - name: "news"
     display_name: "News & Documentaries"
