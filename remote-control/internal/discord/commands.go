@@ -23,15 +23,6 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 		log.Printf("error getting playlist '%s' from Redis: %v", currentPlaylistName, err)
 	}
 
-	playlistLen := float64(50000)
-
-	if err != nil {
-		log.Printf("warning: could not get playlist to determine length: %v", err)
-	} else {
-		playlistLen = float64(len(playlist.Channels))
-		log.Printf("setting tv command max channel to %d based on playlist '%s' length", int64(playlistLen), currentPlaylistName)
-	}
-
 	return []*discordgo.ApplicationCommand{
 		{
 			Name:        models.TvCommand,
@@ -43,7 +34,6 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 					Description: "The TV channel to play",
 					Required:    true,
 					MinValue:    &[]float64{1}[0],
-					MaxValue:    playlistLen,
 				},
 			},
 		},
