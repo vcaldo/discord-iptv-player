@@ -584,16 +584,61 @@ func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int,
 }
 
 func (c *Client) GetID(key string) string {
-	val, err := c.rdb.Get(key).Result()
-	if err != nil {
-		if err == redis.Nil {
-			log.Printf("key %s not found in Redis", key)
-			return ""
+	var id string
+	err := c.instrumentOperation("get-id", func() error {
+		var err error
+		id, err = c.rdb.Get(key).Result()
+		if err != nil {
+			return err
 		}
-		log.Printf("error getting key %s from Redis: %v", key, err)
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("failed to get ID for key '%s': %v", key, err)
 		return ""
 	}
-	return val
+
+	return id
+}
+
+// SetCurrentPlaylist sets the current playlist for a guild
+func (c *Client) SetCurrentPlaylist(guildID, playlistName string) error {
+	return c.instrumentOperation("set-current-playlist", func() error {
+		key := fmt.Sprintf("guild:%s:current_playlist", guildID)
+
+		err := c.rdb.Set(key, playlistName, 0).Err()
+		if err != nil {
+			return fmt.Errorf("failed to set current playlist: %w", err)
+		}
+
+		log.Printf("set current playlist to '%s' for guild %s", playlistName, guildID)
+		return nil
+	})
+}
+
+// GetCurrentPlaylist gets the current playlist for a guild
+func (c *Client) GetCurrentPlaylist(guildID string) (string, error) {
+	var playlistName string
+
+	err := c.instrumentOperation("get-current-playlist", func() error {
+		key := fmt.Sprintf("guild:%s:current_playlist", guildID)
+
+		var err error
+		playlistName, err = c.rdb.Get(key).Result()
+		if err != nil {
+			return fmt.Errorf("failed to get current playlist: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	log.Printf("retrieved current playlist '%s' for guild %s", playlistName, guildID)
+	return playlistName, nil
 }
 
 func (c *Client) Close() error {

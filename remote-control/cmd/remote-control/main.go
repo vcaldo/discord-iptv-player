@@ -44,9 +44,8 @@ func main() {
 		log.Fatalf("error initializing Redis client: %v", err)
 	}
 	defer redisClient.Close()
-
-	if err := m3u.InitializePlaylist(ctx, config, redisClient, nrApp); err != nil {
-		log.Fatalf("error initializing playlist: %v", err)
+	if err := m3u.InitializePlaylists(ctx, config, redisClient, nrApp); err != nil {
+		log.Fatalf("error initializing playlists: %v", err)
 	}
 
 	discordBot, err := discord.NewBot(config, redisClient, nrApp)

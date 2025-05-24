@@ -9,6 +9,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/kkdai/youtube/v2 v2.10.4
 	github.com/newrelic/go-agent/v3 v3.38.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

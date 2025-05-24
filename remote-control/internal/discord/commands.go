@@ -10,20 +10,6 @@ import (
 )
 
 func (b *Bot) commands() []*discordgo.ApplicationCommand {
-	playlist, err := b.redis.GetPlaylist(b.config.DiscordGuildID, b.config.PlaylistName)
-	if err != nil {
-		log.Printf("error getting playlist from Redis: %v", err)
-	}
-
-	playlistLen := float64(50000)
-
-	if err != nil {
-		log.Printf("warning: could not get playlist to determine length: %v", err)
-	} else {
-		playlistLen = float64(len(playlist.Channels))
-		log.Printf("setting tv command max channel to %d based on playlist length", int64(playlistLen))
-	}
-
 	return []*discordgo.ApplicationCommand{
 		{
 			Name:        models.TvCommand,
@@ -35,7 +21,6 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 					Description: "The TV channel to play",
 					Required:    true,
 					MinValue:    &[]float64{1}[0],
-					MaxValue:    playlistLen,
 				},
 			},
 		},
@@ -78,13 +63,25 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        models.SearchCommand,
-			Description: "Search for TV channels by name",
-			Options: []*discordgo.ApplicationCommandOption{
+			Description: "Search for TV channels by name", Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "name",
 					Description: "The channel name to search for",
 					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        models.PlaylistCommand,
+			Description: "Switch to a different playlist",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:         discordgo.ApplicationCommandOptionString,
+					Name:         "name",
+					Description:  "The playlist to switch to",
+					Required:     true,
+					Autocomplete: true,
 				},
 			},
 		},

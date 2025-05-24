@@ -29,3 +29,6 @@ go.work.sum
 
 # New Relic
 newrelic-infra.yml
+
+# playlists.yaml
+playlists.yaml

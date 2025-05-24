@@ -1,0 +1,68 @@
+# playlists.sample.yaml
+# Sample configuration file for Discord IPTV Player playlists
+# Copy this file to playlists.yaml and modify with your actual playlist URLs
+
+# Global settings
+settings:
+  # Default playlist to use when the bot starts
+  default_playlist: "demo"
+
+# List of available playlists
+playlists:
+  # Primary demo playlist - enabled by default
+  - name: "demo"
+    display_name: "Demo Playlist"
+    url: "https://example.com/demo.m3u"
+    description: "Demo playlist with sample channels for testing"
+    max_age_days: 7
+    enabled: true
+
+  # Sports-focused playlist
+  - name: "sports"
+    display_name: "Sports Channels"
+    url: "https://example.com/sports.m3u"
+    description: "Sports and entertainment channels"
+    max_age_days: 3
+    enabled: true
+
+  # International playlist
+  - name: "international"
+    display_name: "International Channels"
+    url: "https://example.com/international.m3u"
+    description: "International channels from various countries"
+    max_age_days: 5
+    enabled: true
+
+  # Premium playlist (disabled by default)
+  - name: "premium"
+    display_name: "Premium Channels"
+    url: "https://example.com/premium.m3u"
+    description: "Premium channels - requires authentication"
+    max_age_days: 1
+    enabled: false
+
+  # News and documentaries
+  - name: "news"
+    display_name: "News & Documentaries"
+    url: "https://example.com/news.m3u"
+    description: "News channels and documentary content"
+    max_age_days: 2
+    enabled: true
+
+# Configuration notes:
+# - name: Internal identifier (used in Discord commands)
+# - display_name: Human-readable name shown to users
+# - url: HTTP(S) URL or file:// path to the M3U playlist
+# - description: Brief description of the playlist content
+# - max_age_days: How many days to cache the playlist before refreshing
+# - enabled: Whether this playlist is available for use
+#
+# To use this configuration:
+# 1. Copy this file to playlists.yaml
+# 2. Replace example URLs with your actual playlist URLs
+# 3. Adjust the default_playlist setting as needed
+# 4. Enable/disable playlists by changing the enabled flag
+#
+# Discord commands:
+# - /playlist name:demo - Switch to the demo playlist
+# - /tv channel:123 - Play channel 123 from current playlist
