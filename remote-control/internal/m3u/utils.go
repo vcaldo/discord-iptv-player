@@ -71,19 +71,15 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 	txn.AddAttribute("playlist_name", playlistConfig.Name)
 
 	segment := txn.StartSegment("check-playlist-in-redis")
-	// Check if playlist exists in Redis
 	existingPlaylist, err := redisClient.GetPlaylist(cfg.DiscordGuildID, playlistConfig.Name)
 	segment.End()
 
 	refreshNeeded := true
 	if err == nil {
-		// Add playlist age as a custom attribute for monitoring
 		txn.AddAttribute("playlist.age_hours", time.Since(existingPlaylist.Updated).Hours())
 
-		// Playlist exists, check if it's older than the max age
 		maxAgeDuration := time.Duration(playlistConfig.MaxAgeDays) * 24 * time.Hour
 		if time.Since(existingPlaylist.Updated) < maxAgeDuration {
-			// Playlist is still fresh, no need to download
 			log.Printf("using existing playlist '%s' from redis, updated %s ago", playlistConfig.Name, time.Since(existingPlaylist.Updated).Round(time.Second))
 			refreshNeeded = false
 		} else {
@@ -97,12 +93,10 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 	if !refreshNeeded {
 		return nil
 	}
-	// Download and parse the playlist
 	downloadSegment := txn.StartSegment("download-playlist")
 	var playlist *models.Playlist
 
 	if playlistConfig.URL != "" {
-		// Download from URL
 		playlist, err = GetPlaylist(ctx, playlistConfig.URL, playlistConfig.Name, nrApp)
 	} else {
 		err = fmt.Errorf("no URL configured for playlist '%s'", playlistConfig.Name)
@@ -116,18 +110,15 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 
 	txn.AddAttribute("playlist.channels_count", len(playlist.Channels))
 
-	// Delete the old playlist if it exists
 	if existingPlaylist != nil {
 		deleteSegment := txn.StartSegment("delete-old-playlist")
 		if err := redisClient.DeletePlaylist(cfg.DiscordGuildID, playlistConfig.Name); err != nil {
 			log.Printf("warning: failed to delete old playlist '%s': %v", playlistConfig.Name, err)
 			txn.NoticeError(err)
-			// Continue anyway, we'll just overwrite it
 		}
 		deleteSegment.End()
 	}
 
-	// Store the new playlist in Redis
 	storeSegment := txn.StartSegment("store-new-playlist")
 	if err := redisClient.StorePlaylist(playlist, cfg.DiscordGuildID); err != nil {
 		txn.NoticeError(err)
@@ -142,9 +133,7 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 
 // findDefaultPlaylist finds the default playlist from the configuration
 func findDefaultPlaylist(playlistsConfig *models.PlaylistsConfig) string {
-	// First, check if there's a configured default playlist
 	if playlistsConfig.Settings.DefaultPlaylist != "" {
-		// Verify it's enabled
 		for _, playlist := range playlistsConfig.Playlists {
 			if playlist.Name == playlistsConfig.Settings.DefaultPlaylist && playlist.Enabled {
 				return playlist.Name
@@ -159,7 +148,6 @@ func findDefaultPlaylist(playlistsConfig *models.PlaylistsConfig) string {
 		}
 	}
 
-	// Fallback to "default" if nothing found
 	return "default"
 }
 
