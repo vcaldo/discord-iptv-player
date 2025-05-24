@@ -10,4 +10,5 @@ const (
 	ListChannelsinCategoryCommand string = "list"
 	RestartCommand                string = "restart"
 	PlaylistCommand               string = "playlist"
+	CatalogCommand                string = "catalog"
 )
