@@ -74,7 +74,6 @@ func validatePlaylistsConfig(config *PlaylistsConfig) error {
 			enabledPlaylists[playlist.Name] = true
 		}
 
-		// Set default display name if not provided
 		if playlist.DisplayName == "" {
 			// This will be handled when we access the playlist
 		}
