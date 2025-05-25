@@ -536,9 +536,11 @@ func (c *CatalogGenerator) buildCSS() string {
             transform: translateY(-5px);
             box-shadow: var(--shadow-heavy);
             border-color: rgba(44, 83, 100, 0.3);
-        }        .channel-logo {
-            width: 240px;
-            height: 240px;
+        }
+
+        .channel-logo {
+            width: 60px;
+            height: 60px;
             object-fit: contain;
             border-radius: var(--radius-medium);
             margin-bottom: var(--spacing-md);
