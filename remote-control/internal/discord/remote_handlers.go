@@ -809,9 +809,17 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	htmlContent := generator.GenerateHTML(playlist, categories, categoryChannels)
 	generateSegment.End()
 
+	// Create filename for the catalog
+	filename := fmt.Sprintf("%s-catalog-%s.html", currentPlaylist, "2025-05-25")
+
+	// Log file size for monitoring
+	fileSizeBytes := len(htmlContent)
+	fileSizeKB := float64(fileSizeBytes) / 1024
+	log.Printf("Generated catalog HTML file: %s, Size: %d bytes (%.2f KB), Channels: %d, Categories: %d",
+		filename, fileSizeBytes, fileSizeKB, len(playlist.Channels), len(categories))
+
 	// Create temporary file
 	fileSegment := txn.StartSegment("create_temp_file")
-	filename := fmt.Sprintf("%s-2025-05-25.html", currentPlaylist)
 	tempFile, err := os.CreateTemp("", filename)
 	if err != nil {
 		fileSegment.End()
@@ -858,13 +866,14 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 		},
 	})
 	sendSegment.End()
-
 	if err != nil {
 		txn.NoticeError(err)
 		return err
 	}
 
 	txn.AddAttribute("channels_count", len(playlist.Channels))
-	txn.AddAttribute("file_size", len(htmlContent))
+	txn.AddAttribute("categories_count", len(categories))
+	txn.AddAttribute("file_size_bytes", fileSizeBytes)
+	txn.AddAttribute("file_size_kb", fileSizeKB)
 	return nil
 }
