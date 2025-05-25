@@ -668,6 +668,127 @@ func (c *CatalogGenerator) buildCSS() string {
         .no-results h3 {
             margin-bottom: var(--spacing-md);
             color: var(--text-primary);
+        }        .pagination-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: var(--spacing-xl) 0;
+            gap: var(--spacing-md);
+        }
+
+        .pagination-info {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            background: var(--surface-bg);
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--radius-large);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .pagination-controls {
+            display: flex;
+            gap: var(--spacing-sm);
+            align-items: center;
+        }
+
+        .pagination-btn {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-light);
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--radius-medium);
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all var(--transition-normal);
+            min-width: 40px;
+            text-align: center;
+            box-shadow: var(--shadow-light);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pagination-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, transparent, rgba(44, 83, 100, 0.05));
+            opacity: 0;
+            transition: opacity var(--transition-normal);
+            pointer-events: none;
+        }
+
+        .pagination-btn:hover::before {
+            opacity: 1;
+        }
+
+        .pagination-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-heavy);
+            border-color: rgba(44, 83, 100, 0.3);
+        }
+
+        .pagination-btn:active {
+            transform: translateY(0);
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: var(--shadow-light);
+        }
+
+        .pagination-btn:disabled:hover {
+            transform: none;
+            box-shadow: var(--shadow-light);
+            border-color: var(--border-light);
+        }
+
+        .pagination-btn:disabled::before {
+            opacity: 0;
+        }
+
+        .pagination-btn.active {
+            background: var(--secondary-bg);
+            border-color: var(--secondary-bg);
+            color: var(--text-primary);
+            font-weight: 700;
+        }
+
+        .pagination-btn.active::before {
+            background: linear-gradient(135deg, rgba(44, 83, 100, 0.1), rgba(44, 83, 100, 0.05));
+            opacity: 1;
+        }
+
+        .page-size-selector {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .page-size-select {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-light);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-medium);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+        }
+
+        .page-size-select:focus {
+            outline: none;
+            border-color: var(--secondary-bg);
+            box-shadow: 0 0 0 2px rgba(44, 83, 100, 0.1);
         }
 
         .footer {
@@ -782,12 +903,55 @@ func (c *CatalogGenerator) buildMainContent(data CatalogData) string {
 		sort.Slice(channels, func(i, j int) bool {
 			return channels[i].Name < channels[j].Name
 		})
-		content.WriteString(fmt.Sprintf(`<section class="category-section" data-category="%s"><h2 class="category-title">%s <span style="font-weight:400;color:#666;">(%d channels)</span></h2><div class="channels-grid">`, html.EscapeString(category), html.EscapeString(category), len(channels)))
+		content.WriteString(fmt.Sprintf(`<section class="category-section" data-category="%s"><h2 class="category-title">%s <span style="font-weight:400;color:#666;">(<span class="channel-count">%d</span> channels)</span></h2>`, html.EscapeString(category), html.EscapeString(category), len(channels)))
+
+		// Add pagination controls for each category
+		content.WriteString(`<div class="pagination-container category-pagination" style="display:none;">
+			<div class="page-size-selector">
+				<label>Per page:</label>
+				<select class="page-size-select" onchange="updatePageSize(this.value)">
+					<option value="50">50</option>
+					<option value="100">100</option>
+					<option value="200" selected>200</option>
+					<option value="500">500</option>
+				</select>
+			</div>
+			<div class="pagination-info">
+				<span class="page-info">Page <span class="current-page">1</span> of <span class="total-pages">1</span></span>
+				<span class="results-info">(<span class="visible-channels">0</span> of <span class="total-channels">0</span> channels)</span>
+			</div>
+			<div class="pagination-controls">
+				<button class="pagination-btn" onclick="goToFirstPage()" title="First page">⏮</button>
+				<button class="pagination-btn" onclick="goToPrevPage()" title="Previous page">◀</button>
+				<div class="page-numbers"></div>
+				<button class="pagination-btn" onclick="goToNextPage()" title="Next page">▶</button>
+				<button class="pagination-btn" onclick="goToLastPage()" title="Last page">⏭</button>
+			</div>
+		</div>`)
+
+		content.WriteString(`<div class="channels-grid">`)
 
 		for _, channel := range channels {
 			content.WriteString(c.buildChannelCard(channel))
 		}
-		content.WriteString(`</div></section>`)
+		content.WriteString(`</div>`)
+
+		// Add pagination controls at the bottom as well
+		content.WriteString(`<div class="pagination-container category-pagination" style="display:none;">
+			<div class="pagination-info">
+				<span class="page-info">Page <span class="current-page">1</span> of <span class="total-pages">1</span></span>
+				<span class="results-info">(<span class="visible-channels">0</span> of <span class="total-channels">0</span> channels)</span>
+			</div>
+			<div class="pagination-controls">
+				<button class="pagination-btn" onclick="goToFirstPage()" title="First page">⏮</button>
+				<button class="pagination-btn" onclick="goToPrevPage()" title="Previous page">◀</button>
+				<div class="page-numbers"></div>
+				<button class="pagination-btn" onclick="goToNextPage()" title="Next page">▶</button>
+				<button class="pagination-btn" onclick="goToLastPage()" title="Last page">⏭</button>
+			</div>
+		</div>`)
+
+		content.WriteString(`</section>`)
 	}
 	content.WriteString(`<div id="noResults" class="no-results" style="display:none;"><h3>No channels found</h3><p>Try adjusting your search terms or selecting a different category.</p></div></main><footer class="footer"><div class="container">Generated by Discord IPTV Player • ` + time.Now().Format("January 2, 2006 at 3:04 PM") + `</div></footer></div>`)
 
@@ -810,13 +974,19 @@ func (c *CatalogGenerator) buildChannelCard(channel models.TvChannel) string {
 }
 
 func (c *CatalogGenerator) buildJavaScript() string {
-	return `    <script>
-        // Application state
+	return `    <script>        // Application state
         const AppState = {
             currentCategory: 'all',
             searchTerm: '',
             categoriesExpanded: false,
-            searchTimeout: null
+            searchTimeout: null,
+            pagination: {
+                currentPage: 1,
+                pageSize: 200,
+                totalPages: 1,
+                totalChannels: 0,
+                visibleChannels: 0
+            }
         };
 
         // DOM element cache for better performance
@@ -904,10 +1074,9 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 } else {
                     DOMCache.clearBtn.classList.remove('visible');
                 }
-            },
-
-            handleInput: Utils.debounce(function(value) {
+            },            handleInput: Utils.debounce(function(value) {
                 AppState.searchTerm = Utils.sanitizeInput(value);
+                AppState.pagination.currentPage = 1; // Reset to first page when searching
                 SearchManager.toggleClearButton();
                 ViewManager.update();
             }, 150)
@@ -1007,16 +1176,16 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 const count = match ? match[1] : '';
 
                 DOMCache.showAllBtn.innerHTML = text + ' (' + count + ') <span class="expand-icon">' + arrow + '</span>';
-            },
-
-            showAll() {
+            },            showAll() {
                 AppState.currentCategory = 'all';
+                AppState.pagination.currentPage = 1; // Reset pagination
                 ViewManager.update();
                 this.updateActiveButton('show-all');
             },
 
             show(category) {
                 AppState.currentCategory = category;
+                AppState.pagination.currentPage = 1; // Reset pagination
                 ViewManager.update();
                 this.updateActiveButton(category);
 
@@ -1057,6 +1226,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 if (!DOMCache.sections || !DOMCache.noResults) return;
 
                 let hasVisibleResults = false;
+                let allChannels = [];
 
                 DOMCache.sections.forEach(section => {
                     const category = section.dataset.category;
@@ -1064,6 +1234,9 @@ func (c *CatalogGenerator) buildJavaScript() string {
 
                     if (shouldShowCategory) {
                         Utils.showElement(section);
+                        const channels = this.getChannelsInSection(section);
+                        allChannels = allChannels.concat(channels);
+
                         const hasVisibleChannels = this.filterChannelsInSection(section);
 
                         if (!hasVisibleChannels && AppState.searchTerm !== '') {
@@ -1076,12 +1249,33 @@ func (c *CatalogGenerator) buildJavaScript() string {
                     }
                 });
 
+                // Apply pagination to all visible channels
+                if (AppState.currentCategory === 'all') {
+                    PaginationManager.updatePagination(allChannels);
+                } else {
+                    // For single category, update its pagination
+                    const activeSection = document.querySelector('.category-section[data-category="' + AppState.currentCategory + '"]');
+                    if (activeSection) {
+                        const channels = this.getChannelsInSection(activeSection);
+                        PaginationManager.updatePagination(channels);
+                    }
+                }
+
                 // Show/hide no results message
                 if (hasVisibleResults) {
                     Utils.hideElement(DOMCache.noResults);
                 } else {
                     Utils.showElement(DOMCache.noResults);
                 }
+            },
+
+            getChannelsInSection(section) {
+                const channels = section.querySelectorAll('.c');
+                return Array.from(channels).filter(channel => {
+                    const channelName = channel.dataset.n;
+                    return AppState.searchTerm === '' ||
+                           (channelName && channelName.includes(AppState.searchTerm));
+                });
             },
 
             filterChannelsInSection(section) {
@@ -1094,16 +1288,227 @@ func (c *CatalogGenerator) buildJavaScript() string {
                                         (channelName && channelName.includes(AppState.searchTerm));
 
                     if (matchesSearch) {
-                        Utils.showElement(channel);
                         hasVisibleChannels = true;
-                    } else {
-                        Utils.hideElement(channel);
                     }
+                });                return hasVisibleChannels;
+            }
+        };
+
+        // Pagination management
+        const PaginationManager = {
+            updatePagination(allChannels) {
+                const filteredChannels = allChannels.filter(channel => {
+                    const channelName = channel.dataset.n;
+                    return AppState.searchTerm === '' ||
+                           (channelName && channelName.includes(AppState.searchTerm));
                 });
 
-                return hasVisibleChannels;
+                AppState.pagination.totalChannels = filteredChannels.length;
+                AppState.pagination.totalPages = Math.ceil(filteredChannels.length / AppState.pagination.pageSize);
+
+                // Reset to page 1 if current page is beyond total pages
+                if (AppState.pagination.currentPage > AppState.pagination.totalPages) {
+                    AppState.pagination.currentPage = 1;
+                }
+
+                // Ensure current page is at least 1
+                if (AppState.pagination.currentPage < 1) {
+                    AppState.pagination.currentPage = 1;
+                }
+
+                this.showPage(filteredChannels);
+                this.updatePaginationUI();
+                this.updateChannelCounts();
+            },
+
+            showPage(filteredChannels) {
+                const startIndex = (AppState.pagination.currentPage - 1) * AppState.pagination.pageSize;
+                const endIndex = startIndex + AppState.pagination.pageSize;
+
+                // Hide all channels first
+                const allChannels = document.querySelectorAll('.c');
+                allChannels.forEach(channel => Utils.hideElement(channel));
+
+                // Show only channels for current page
+                const channelsToShow = filteredChannels.slice(startIndex, endIndex);
+                channelsToShow.forEach(channel => Utils.showElement(channel));
+
+                AppState.pagination.visibleChannels = channelsToShow.length;
+
+                // Update sections visibility based on whether they have visible channels
+                this.updateSectionVisibility();
+            },
+
+            updateSectionVisibility() {
+                DOMCache.sections.forEach(section => {
+                    const visibleChannels = section.querySelectorAll('.c:not([style*="display: none"])');
+                    const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === section.dataset.category;
+
+                    if (shouldShowCategory && visibleChannels.length > 0) {
+                        Utils.showElement(section);
+                        // Update channel count in title
+                        const countSpan = section.querySelector('.channel-count');
+                        if (countSpan) {
+                            const totalInCategory = section.querySelectorAll('.c').length;
+                            countSpan.textContent = totalInCategory;
+                        }
+                        // Show pagination controls for this section
+                        const paginationContainers = section.querySelectorAll('.category-pagination');
+                        paginationContainers.forEach(container => {
+                            if (AppState.pagination.totalPages > 1) {
+                                Utils.showElement(container, 'flex');
+                            } else {
+                                Utils.hideElement(container);
+                            }
+                        });
+                    } else if (shouldShowCategory && visibleChannels.length === 0 && AppState.searchTerm !== '') {
+                        Utils.hideElement(section);
+                    }
+                });
+            },
+
+            updatePaginationUI() {
+                const paginationContainers = document.querySelectorAll('.category-pagination');
+
+                paginationContainers.forEach(container => {
+                    // Update page info
+                    const currentPageSpan = container.querySelector('.current-page');
+                    const totalPagesSpan = container.querySelector('.total-pages');
+                    const visibleChannelsSpan = container.querySelector('.visible-channels');
+                    const totalChannelsSpan = container.querySelector('.total-channels');
+
+                    if (currentPageSpan) currentPageSpan.textContent = AppState.pagination.currentPage;
+                    if (totalPagesSpan) totalPagesSpan.textContent = AppState.pagination.totalPages;
+                    if (visibleChannelsSpan) visibleChannelsSpan.textContent = AppState.pagination.visibleChannels;
+                    if (totalChannelsSpan) totalChannelsSpan.textContent = AppState.pagination.totalChannels;
+
+                    // Update pagination controls
+                    this.updatePaginationControls(container);
+                });
+            },
+
+            updatePaginationControls(container) {
+                const controls = container.querySelector('.pagination-controls');
+                if (!controls) return;
+
+                const buttons = controls.querySelectorAll('.pagination-btn');
+                const pageNumbersDiv = controls.querySelector('.page-numbers');
+
+                // Update navigation buttons
+                buttons[0].disabled = AppState.pagination.currentPage === 1; // First
+                buttons[1].disabled = AppState.pagination.currentPage === 1; // Previous
+                buttons[buttons.length - 2].disabled = AppState.pagination.currentPage === AppState.pagination.totalPages; // Next
+                buttons[buttons.length - 1].disabled = AppState.pagination.currentPage === AppState.pagination.totalPages; // Last
+
+                // Generate page numbers
+                this.generatePageNumbers(pageNumbersDiv);
+            },
+
+            generatePageNumbers(container) {
+                if (!container) return;
+
+                container.innerHTML = '';
+
+                if (AppState.pagination.totalPages <= 1) return;
+
+                const currentPage = AppState.pagination.currentPage;
+                const totalPages = AppState.pagination.totalPages;
+
+                // Calculate which pages to show
+                let startPage = Math.max(1, currentPage - 2);
+                let endPage = Math.min(totalPages, currentPage + 2);
+
+                // Adjust range to always show 5 pages when possible
+                if (endPage - startPage < 4) {
+                    if (startPage === 1) {
+                        endPage = Math.min(totalPages, startPage + 4);
+                    } else if (endPage === totalPages) {
+                        startPage = Math.max(1, endPage - 4);
+                    }
+                }
+
+                // Add first page and ellipsis if needed
+                if (startPage > 1) {
+                    this.addPageButton(container, 1);
+                    if (startPage > 2) {
+                        container.appendChild(this.createEllipsis());
+                    }
+                }
+
+                // Add page numbers
+                for (let i = startPage; i <= endPage; i++) {
+                    this.addPageButton(container, i, i === currentPage);
+                }
+
+                // Add last page and ellipsis if needed
+                if (endPage < totalPages) {
+                    if (endPage < totalPages - 1) {
+                        container.appendChild(this.createEllipsis());
+                    }
+                    this.addPageButton(container, totalPages);
+                }
+            },
+
+            addPageButton(container, pageNumber, isActive = false) {
+                const button = document.createElement('button');
+                button.className = 'pagination-btn' + (isActive ? ' active' : '');
+                button.textContent = pageNumber;
+                button.onclick = () => this.goToPage(pageNumber);
+                container.appendChild(button);
+            },
+
+            createEllipsis() {
+                const span = document.createElement('span');
+                span.className = 'pagination-ellipsis';
+                span.textContent = '...';
+                span.style.cssText = 'padding: 0 8px; color: var(--text-muted);';
+                return span;
+            },
+
+            goToPage(pageNumber) {
+                AppState.pagination.currentPage = pageNumber;
+                ViewManager.update();
+                this.scrollToTop();
+            },
+
+            goToFirstPage() {
+                this.goToPage(1);
+            },
+
+            goToPrevPage() {
+                if (AppState.pagination.currentPage > 1) {
+                    this.goToPage(AppState.pagination.currentPage - 1);
+                }
+            },
+
+            goToNextPage() {
+                if (AppState.pagination.currentPage < AppState.pagination.totalPages) {
+                    this.goToPage(AppState.pagination.currentPage + 1);
+                }
+            },
+
+            goToLastPage() {
+                this.goToPage(AppState.pagination.totalPages);
+            },
+
+            updatePageSize(newSize) {
+                AppState.pagination.pageSize = parseInt(newSize);
+                AppState.pagination.currentPage = 1; // Reset to first page
+                ViewManager.update();
+            },
+
+            updateChannelCounts() {
+                // Update the search results info if needed
+                const searchInfo = document.querySelector('.search-results-info');
+                if (searchInfo) {
+                    searchInfo.textContent = AppState.pagination.totalChannels + ' channels found';
+                }
+            },
+
+            scrollToTop() {
+                Utils.scrollToElement(DOMCache.mainContent);
             }
-        };        // Dynamic content generator for compact cards
+        };// Dynamic content generator for compact cards
         const ContentGenerator = {
             generateChannelCards() {
                 document.querySelectorAll('.c').forEach(card => {
@@ -1156,13 +1561,16 @@ func (c *CatalogGenerator) buildJavaScript() string {
                     DOMCache.searchBox?.focus();
                 }
             }
-        };
-
-        // Global functions (needed for inline onclick handlers)
+        };        // Global functions (needed for inline onclick handlers)
         window.clearSearch = () => SearchManager.clear();
         window.copyChannelId = (channelId) => ClipboardManager.copy(channelId, window.event);
         window.toggleCategoriesView = () => CategoryManager.toggleView();
         window.toggleCategory = (category) => CategoryManager.toggle(category);
+        window.goToFirstPage = () => PaginationManager.goToFirstPage();
+        window.goToPrevPage = () => PaginationManager.goToPrevPage();
+        window.goToNextPage = () => PaginationManager.goToNextPage();
+        window.goToLastPage = () => PaginationManager.goToLastPage();
+        window.updatePageSize = (newSize) => PaginationManager.updatePageSize(newSize);
 
         // Event listeners
         function initializeEventListeners() {
