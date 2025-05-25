@@ -1233,7 +1233,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
                     if (shouldShowCategory) {
                         Utils.showElement(section);
                         const channels = this.getChannelsInSection(section);
-                        
+
                         // Only add to allChannels if we're showing all categories
                         if (AppState.currentCategory === 'all') {
                             allChannels = allChannels.concat(channels);
