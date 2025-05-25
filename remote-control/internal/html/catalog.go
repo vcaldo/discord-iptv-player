@@ -779,211 +779,363 @@ func (c *CatalogGenerator) buildChannelCard(channel models.TvChannel) string {
 }
 
 func (c *CatalogGenerator) buildJavaScript() string {
-	return `    <script>        let currentCategory = 'all';
-        let searchTerm = '';
-        let categoriesExpanded = false;
+	return `    <script>
+        // Application state
+        const AppState = {
+            currentCategory: 'all',
+            searchTerm: '',
+            categoriesExpanded: false,
+            searchTimeout: null
+        };
 
-        // Clear search functionality
-        function clearSearch() {
-            const searchBox = document.getElementById('searchBox');
-            const clearBtn = document.getElementById('clearSearch');
+        // DOM element cache for better performance
+        const DOMCache = {
+            searchBox: null,
+            clearBtn: null,
+            categoriesGrid: null,
+            categoriesNav: null,
+            showAllBtn: null,
+            noResults: null,
+            sections: null,
+            categoryBtns: null,
+            mainContent: null,
 
-            searchBox.value = '';
-            searchTerm = '';
-            clearBtn.classList.remove('visible');
-            updateView();
-            searchBox.focus();
-        }
+            init() {
+                this.searchBox = document.getElementById('searchBox');
+                this.clearBtn = document.getElementById('clearSearch');
+                this.categoriesGrid = document.getElementById('categoriesGrid');
+                this.categoriesNav = document.getElementById('categoriesNav');
+                this.showAllBtn = document.getElementById('showAllBtn');
+                this.noResults = document.getElementById('noResults');
+                this.mainContent = document.getElementById('mainContent');
 
-        // Toggle search clear button visibility
-        function toggleClearButton() {
-            const searchBox = document.getElementById('searchBox');
-            const clearBtn = document.getElementById('clearSearch');
+                // Cache NodeLists
+                this.sections = document.querySelectorAll('.category-section');
+                this.categoryBtns = document.querySelectorAll('.category-btn');
+            },
 
-            if (searchBox.value.length > 0) {
-                clearBtn.classList.add('visible');
-            } else {
-                clearBtn.classList.remove('visible');
+            refresh() {
+                // Refresh dynamic elements if needed
+                this.sections = document.querySelectorAll('.category-section');
+                this.categoryBtns = document.querySelectorAll('.category-btn');
             }
-        }// Copy channel ID to clipboard
-        async function copyChannelId(channelId) {
-            const event = window.event;
-            const clickedElement = event.target.closest('.channel-id');
-            const feedback = clickedElement.querySelector('.copy-feedback');
+        };
 
-            try {
-                await navigator.clipboard.writeText(channelId);
-                showCopyFeedback(clickedElement, feedback);
-            } catch (err) {
-                // Fallback for older browsers
+        // Utility functions
+        const Utils = {
+            debounce(func, wait) {
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(AppState.searchTimeout);
+                        func(...args);
+                    };
+                    clearTimeout(AppState.searchTimeout);
+                    AppState.searchTimeout = setTimeout(later, wait);
+                };
+            },
+
+            sanitizeInput(input) {
+                return input.toLowerCase().trim();
+            },
+
+            showElement(element, display = 'block') {
+                if (element) element.style.display = display;
+            },
+
+            hideElement(element) {
+                if (element) element.style.display = 'none';
+            },
+
+            scrollToElement(element, options = { behavior: 'smooth', block: 'start' }) {
+                if (element) {
+                    element.scrollIntoView(options);
+                }
+            }
+        };
+
+        // Search functionality
+        const SearchManager = {
+            clear() {
+                if (!DOMCache.searchBox || !DOMCache.clearBtn) return;
+
+                DOMCache.searchBox.value = '';
+                AppState.searchTerm = '';
+                DOMCache.clearBtn.classList.remove('visible');
+                ViewManager.update();
+                DOMCache.searchBox.focus();
+            },
+
+            toggleClearButton() {
+                if (!DOMCache.searchBox || !DOMCache.clearBtn) return;
+
+                if (DOMCache.searchBox.value.length > 0) {
+                    DOMCache.clearBtn.classList.add('visible');
+                } else {
+                    DOMCache.clearBtn.classList.remove('visible');
+                }
+            },
+
+            handleInput: Utils.debounce(function(value) {
+                AppState.searchTerm = Utils.sanitizeInput(value);
+                SearchManager.toggleClearButton();
+                ViewManager.update();
+            }, 150)
+        };
+
+        // Clipboard functionality
+        const ClipboardManager = {
+            async copy(channelId, event) {
+                if (!event) return;
+
+                const clickedElement = event.target.closest('.channel-id');
+                const feedback = clickedElement?.querySelector('.copy-feedback');
+
+                if (!clickedElement || !feedback) return;
+
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(channelId);
+                    } else {
+                        // Fallback for older browsers or non-secure contexts
+                        this.fallbackCopy(channelId);
+                    }
+                    this.showFeedback(clickedElement, feedback);
+                } catch (err) {
+                    console.warn('Clipboard copy failed, using fallback:', err);
+                    this.fallbackCopy(channelId);
+                    this.showFeedback(clickedElement, feedback);
+                }
+            },
+
+            fallbackCopy(text) {
                 const textArea = document.createElement('textarea');
-                textArea.value = channelId;
-                textArea.style.position = 'fixed';
-                textArea.style.left = '-999999px';
-                textArea.style.top = '-999999px';
+                textArea.value = text;
+                textArea.style.cssText = 'position:fixed;left:-999999px;top:-999999px;opacity:0;';
                 document.body.appendChild(textArea);
                 textArea.focus();
                 textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                showCopyFeedback(clickedElement, feedback);
+
+                try {
+                    document.execCommand('copy');
+                } catch (err) {
+                    console.error('Fallback copy failed:', err);
+                } finally {
+                    document.body.removeChild(textArea);
+                }
+            },
+
+            showFeedback(element, feedback) {
+                if (!element || !feedback) return;
+
+                // Add blinking effect to the channel ID
+                element.classList.add('copied');
+                feedback.classList.add('show');
+
+                // Clean up animations
+                setTimeout(() => element.classList.remove('copied'), 600);
+                setTimeout(() => feedback.classList.remove('show'), 2000);
             }
-        }
+        };
 
-        function showCopyFeedback(element, feedback) {
-            // Add blinking effect to the channel ID
-            element.classList.add('copied');
+        // Category management
+        const CategoryManager = {
+            toggleView() {
+                if (!DOMCache.categoriesGrid || !DOMCache.categoriesNav || !DOMCache.showAllBtn) return;
 
-            // Show the "Copied!" feedback
-            feedback.classList.add('show');
+                AppState.categoriesExpanded = !AppState.categoriesExpanded;
 
-            // Remove the blinking effect after animation completes
-            setTimeout(() => {
-                element.classList.remove('copied');
-            }, 600);
+                if (AppState.categoriesExpanded) {
+                    this.expandCategories();
+                } else {
+                    this.collapseCategories();
+                }
 
-            // Remove the feedback after animation completes
-            setTimeout(() => {
-                feedback.classList.remove('show');
-            }, 2000);
-        }function toggleCategoriesView() {
-            const grid = document.getElementById('categoriesGrid');
-            const nav = document.getElementById('categoriesNav');
-            const btn = document.getElementById('showAllBtn');
+                // If categories are expanded or showing all, show all categories content
+                if (AppState.categoriesExpanded || AppState.currentCategory === 'all') {
+                    this.showAll();
+                }
+            },
 
-            categoriesExpanded = !categoriesExpanded;
+            expandCategories() {
+                DOMCache.categoriesGrid.classList.remove('collapsed');
+                DOMCache.categoriesGrid.classList.add('expanded');
+                DOMCache.categoriesNav.classList.remove('collapsed');
+                DOMCache.showAllBtn.classList.add('expanded');
+                this.updateButtonText('Collapse Categories', '▲');
+            },
 
-            if (categoriesExpanded) {
-                grid.classList.remove('collapsed');
-                grid.classList.add('expanded');
-                nav.classList.remove('collapsed');
-                btn.classList.add('expanded');
-                btn.innerHTML = btn.innerHTML.replace('▼', '▲');
-                btn.innerHTML = btn.innerHTML.replace('Show All Categories', 'Collapse Categories');
-            } else {
-                grid.classList.remove('expanded');
-                grid.classList.add('collapsed');
-                nav.classList.add('collapsed');
-                btn.classList.remove('expanded');
-                btn.innerHTML = btn.innerHTML.replace('▲', '▼');
-                btn.innerHTML = btn.innerHTML.replace('Collapse Categories', 'Show All Categories');
-            }
+            collapseCategories() {
+                DOMCache.categoriesGrid.classList.remove('expanded');
+                DOMCache.categoriesGrid.classList.add('collapsed');
+                DOMCache.categoriesNav.classList.add('collapsed');
+                DOMCache.showAllBtn.classList.remove('expanded');
+                this.updateButtonText('Show All Categories', '▼');
+            },            updateButtonText(text, arrow) {
+                if (!DOMCache.showAllBtn) return;
 
-            // If categories are collapsed, show all categories content
-            if (categoriesExpanded || currentCategory === 'all') {
-                showAllCategories();
-            }
-        }
+                const currentHTML = DOMCache.showAllBtn.innerHTML;
+                const match = currentHTML.match(/\((\d+)\)/);
+                const count = match ? match[1] : '';
 
-        function showAllCategories() {
-            currentCategory = 'all';
-            updateView();
-            updateActiveButton('show-all');
-        }        function showCategory(category) {
-            currentCategory = category;
-            updateView();
-            updateActiveButton(category);
+                DOMCache.showAllBtn.innerHTML = text + ' (' + count + ') <span class="expand-icon">' + arrow + '</span>';
+            },
 
-            // If a specific category is selected, collapse the categories grid
-            if (categoriesExpanded) {
-                toggleCategoriesView();
-            }
-        }
+            showAll() {
+                AppState.currentCategory = 'all';
+                ViewManager.update();
+                this.updateActiveButton('show-all');
+            },
 
-        // Toggle category selection (double-click to deselect)
-        function toggleCategory(category) {
-            if (currentCategory === category) {
-                // If clicking the same category, deselect it and show all
-                showAllCategories();
-            } else {
-                // Otherwise, select the new category
-                showCategory(category);
-            }
-        }
+            show(category) {
+                AppState.currentCategory = category;
+                ViewManager.update();
+                this.updateActiveButton(category);
 
-        function updateActiveButton(activeCategory) {
-            // Remove active class from all buttons
-            document.querySelectorAll('.category-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
+                // Auto-collapse if a specific category is selected
+                if (AppState.categoriesExpanded) {
+                    this.toggleView();
+                }
+            },
 
-            // Add active class to the selected button
-            if (activeCategory === 'show-all') {
-                document.querySelector('.show-all-btn').classList.add('active');
-            } else {
-                document.querySelectorAll('.category-btn').forEach(btn => {
-                    if (btn.textContent.includes(activeCategory)) {
-                        btn.classList.add('active');
-                    }
-                });
-            }
-        }
+            toggle(category) {
+                if (AppState.currentCategory === category) {
+                    this.showAll();
+                } else {
+                    this.show(category);
+                }
+            },
 
-        function updateView() {
-            const sections = document.querySelectorAll('.category-section');
-            const noResults = document.getElementById('noResults');
-            let hasVisibleResults = false;
+            updateActiveButton(activeCategory) {
+                if (!DOMCache.categoryBtns) return;
 
-            sections.forEach(section => {
-                const category = section.dataset.category;
-                const shouldShowCategory = currentCategory === 'all' || currentCategory === category;
+                // Remove active class from all buttons
+                DOMCache.categoryBtns.forEach(btn => btn.classList.remove('active'));
 
-                if (shouldShowCategory) {
-                    section.style.display = 'block';
-
-                    // Filter channels within this category based on search
-                    const channels = section.querySelectorAll('.channel-card');
-                    let hasVisibleChannels = false;
-
-                    channels.forEach(channel => {
-                        const channelName = channel.dataset.channelName;
-                        const matchesSearch = searchTerm === '' || channelName.includes(searchTerm.toLowerCase());
-
-                        if (matchesSearch) {
-                            channel.style.display = 'block';
-                            hasVisibleChannels = true;
-                            hasVisibleResults = true;
-                        } else {
-                            channel.style.display = 'none';
+                // Add active class to the selected button
+                if (activeCategory === 'show-all') {
+                    DOMCache.showAllBtn?.classList.add('active');
+                } else {
+                    DOMCache.categoryBtns.forEach(btn => {
+                        if (btn.textContent.includes(activeCategory)) {
+                            btn.classList.add('active');
                         }
                     });
-
-                    // Hide section if no channels match search
-                    if (!hasVisibleChannels && searchTerm !== '') {
-                        section.style.display = 'none';
-                    }
-                } else {
-                    section.style.display = 'none';
                 }
+            }
+        };
+
+        // View management
+        const ViewManager = {
+            update() {
+                if (!DOMCache.sections || !DOMCache.noResults) return;
+
+                let hasVisibleResults = false;
+
+                DOMCache.sections.forEach(section => {
+                    const category = section.dataset.category;
+                    const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === category;
+
+                    if (shouldShowCategory) {
+                        Utils.showElement(section);
+                        const hasVisibleChannels = this.filterChannelsInSection(section);
+
+                        if (!hasVisibleChannels && AppState.searchTerm !== '') {
+                            Utils.hideElement(section);
+                        } else if (hasVisibleChannels) {
+                            hasVisibleResults = true;
+                        }
+                    } else {
+                        Utils.hideElement(section);
+                    }
+                });
+
+                // Show/hide no results message
+                if (hasVisibleResults) {
+                    Utils.hideElement(DOMCache.noResults);
+                } else {
+                    Utils.showElement(DOMCache.noResults);
+                }
+            },
+
+            filterChannelsInSection(section) {
+                const channels = section.querySelectorAll('.channel-card');
+                let hasVisibleChannels = false;
+
+                channels.forEach(channel => {
+                    const channelName = channel.dataset.channelName;
+                    const matchesSearch = AppState.searchTerm === '' ||
+                                        (channelName && channelName.includes(AppState.searchTerm));
+
+                    if (matchesSearch) {
+                        Utils.showElement(channel);
+                        hasVisibleChannels = true;
+                    } else {
+                        Utils.hideElement(channel);
+                    }
+                });
+
+                return hasVisibleChannels;
+            }
+        };
+
+        // Keyboard navigation
+        const KeyboardManager = {
+            init() {
+                document.addEventListener('keydown', this.handleKeydown.bind(this));
+            },
+
+            handleKeydown(event) {
+                // ESC key to clear search
+                if (event.key === 'Escape' && AppState.searchTerm) {
+                    event.preventDefault();
+                    SearchManager.clear();
+                }
+
+                // Ctrl/Cmd + F to focus search
+                if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+                    event.preventDefault();
+                    DOMCache.searchBox?.focus();
+                }
+            }
+        };
+
+        // Global functions (needed for inline onclick handlers)
+        window.clearSearch = () => SearchManager.clear();
+        window.copyChannelId = (channelId) => ClipboardManager.copy(channelId, window.event);
+        window.toggleCategoriesView = () => CategoryManager.toggleView();
+        window.toggleCategory = (category) => CategoryManager.toggle(category);
+
+        // Event listeners
+        function initializeEventListeners() {
+            // Search input with debounced handling
+            DOMCache.searchBox?.addEventListener('input', (e) => {
+                SearchManager.handleInput(e.target.value);
             });
 
-            // Show/hide no results message
-            noResults.style.display = hasVisibleResults ? 'none' : 'block';
-        }        // Search functionality
-        document.getElementById('searchBox').addEventListener('input', function(e) {
-            searchTerm = e.target.value;
-            toggleClearButton();
-            updateView();
-        });
-
-        // Initialize clear button state
-        document.addEventListener('DOMContentLoaded', function() {
-            toggleClearButton();
-        });
-
-        // Smooth scrolling for category buttons
-        document.querySelectorAll('.category-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                setTimeout(() => {
-                    document.getElementById('mainContent').scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
-                }, 100);
+            // Smooth scrolling for category buttons
+            DOMCache.categoryBtns?.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setTimeout(() => {
+                        Utils.scrollToElement(DOMCache.mainContent);
+                    }, 100);
+                });
             });
-        });
 
-        // Initialize view
-        updateView();
+            // Initialize keyboard navigation
+            KeyboardManager.init();
+        }
+
+        // Application initialization
+        function initializeApp() {
+            DOMCache.init();
+            SearchManager.toggleClearButton();
+            ViewManager.update();
+            initializeEventListeners();
+        }        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
     </script>`
 }
