@@ -81,7 +81,7 @@ func isAnyoneWatching(ctx context.Context, s *discordgo.Session, v *discordgo.Vo
 	}
 
 	channelIDToCheck := v.ChannelID
-	if v.BeforeUpdate.ChannelID != "" {
+	if v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID != "" {
 		channelIDToCheck = v.BeforeUpdate.ChannelID
 	}
 
