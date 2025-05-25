@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
@@ -809,16 +810,13 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	htmlContent := generator.GenerateHTML(playlist, categories, categoryChannels)
 	generateSegment.End()
 
-	// Create filename for the catalog
-	filename := fmt.Sprintf("%s-catalog-%s.html", currentPlaylist, "2025-05-25")
+	filename := fmt.Sprintf("%s-catalog-%s.html", currentPlaylist, time.Now().Format("2006-01-02"))
 
-	// Log file size for monitoring
 	fileSizeBytes := len(htmlContent)
 	fileSizeKB := float64(fileSizeBytes) / 1024
 	log.Printf("Generated catalog HTML file: %s, Size: %d bytes (%.2f KB), Channels: %d, Categories: %d",
 		filename, fileSizeBytes, fileSizeKB, len(playlist.Channels), len(categories))
 
-	// Create temporary file
 	fileSegment := txn.StartSegment("create_temp_file")
 	tempFile, err := os.CreateTemp("", filename)
 	if err != nil {
@@ -829,10 +827,9 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 		})
 		return msgErr
 	}
-	defer os.Remove(tempFile.Name()) // Clean up temp file
+	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	// Write HTML content to file
 	_, err = io.WriteString(tempFile, htmlContent)
 	if err != nil {
 		fileSegment.End()
@@ -853,10 +850,10 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 		})
 		return msgErr
 	}
-	fileSegment.End() // Send the file as an attachment
+	fileSegment.End()
 	sendSegment := txn.StartSegment("send_file")
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("📺 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.\nDownload this file and open it in your browser to view the interactive catalog.",
+		Content: fmt.Sprintf("📒 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.\nDownload this file and open it in your browser to view the interactive catalog.",
 			currentPlaylist, len(playlist.Channels), len(categories)),
 		Files: []*discordgo.File{
 			{
