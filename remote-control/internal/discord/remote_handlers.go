@@ -3,13 +3,16 @@ package discord
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/html"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
@@ -44,6 +47,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handlePlaylistCommand(ctx, s, i, config, nrApp)
 	case models.RestartCommand:
 		return b.handleRestartCommand(ctx, s, i, config, nrApp)
+	case models.CatalogCommand:
+		return b.handleCatalogCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -744,4 +749,123 @@ func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i 
 
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{Content: "Bot is restarting... Please wait a moment."})
 	return err
+}
+
+func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-catalog-command")
+	defer txn.End()
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	// Get the current playlist name
+	currentPlaylist := b.getCurrentPlaylist(config)
+	txn.AddAttribute("playlist_name", currentPlaylist)
+
+	// Get the playlist from Redis
+	getPlaylistSegment := txn.StartSegment("get_playlist")
+	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, currentPlaylist)
+	if err != nil {
+		getPlaylistSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error retrieving playlist: %v", err),
+		})
+		return msgErr
+	}
+	getPlaylistSegment.End()
+
+	if len(playlist.Channels) == 0 {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "No channels found in the current playlist.",
+		})
+		return err
+	}
+	// Generate HTML catalog
+	generateSegment := txn.StartSegment("generate_html")
+	generator := html.NewCatalogGenerator()
+
+	// Organize channels by category
+	categoryChannels := make(map[string][]models.TvChannel)
+	categoriesSet := make(map[string]bool)
+
+	for _, channel := range playlist.Channels {
+		category := channel.Category
+		if category == "" {
+			category = "Uncategorized"
+		}
+		categoryChannels[category] = append(categoryChannels[category], channel)
+		categoriesSet[category] = true
+	}
+
+	// Extract sorted categories
+	categories := make([]string, 0, len(categoriesSet))
+	for category := range categoriesSet {
+		categories = append(categories, category)
+	}
+	sort.Strings(categories)
+
+	htmlContent := generator.GenerateHTML(playlist, categories, categoryChannels)
+	generateSegment.End()
+
+	// Create temporary file
+	fileSegment := txn.StartSegment("create_temp_file")
+	filename := fmt.Sprintf("%s-2025-05-25.html", currentPlaylist)
+	tempFile, err := os.CreateTemp("", filename)
+	if err != nil {
+		fileSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error creating catalog file: %v", err),
+		})
+		return msgErr
+	}
+	defer os.Remove(tempFile.Name()) // Clean up temp file
+	defer tempFile.Close()
+
+	// Write HTML content to file
+	_, err = io.WriteString(tempFile, htmlContent)
+	if err != nil {
+		fileSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error writing catalog file: %v", err),
+		})
+		return msgErr
+	}
+
+	// Reset file pointer to beginning
+	_, err = tempFile.Seek(0, 0)
+	if err != nil {
+		fileSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error preparing catalog file: %v", err),
+		})
+		return msgErr
+	}
+	fileSegment.End()
+	// Send the file as an attachment
+	sendSegment := txn.StartSegment("send_file")
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: fmt.Sprintf("📺 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.",
+			currentPlaylist, len(playlist.Channels), len(categories)),
+		Files: []*discordgo.File{
+			{
+				Name:   filename,
+				Reader: tempFile,
+			},
+		},
+	})
+	sendSegment.End()
+
+	if err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+
+	txn.AddAttribute("channels_count", len(playlist.Channels))
+	txn.AddAttribute("file_size", len(htmlContent))
+	return nil
 }

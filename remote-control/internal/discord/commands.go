@@ -70,8 +70,7 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 					Description: "The channel name to search for",
 					Required:    true,
 				},
-			},
-		},
+			}},
 		{
 			Name:        models.PlaylistCommand,
 			Description: "Switch to a different playlist",
@@ -84,6 +83,10 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 					Autocomplete: true,
 				},
 			},
+		},
+		{
+			Name:        models.CatalogCommand,
+			Description: "Generate HTML catalog of current playlist",
 		},
 	}
 }
