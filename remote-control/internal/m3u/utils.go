@@ -69,9 +69,8 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 	defer txn.End()
 
 	txn.AddAttribute("playlist_name", playlistConfig.Name)
-
-	segment := txn.StartSegment("check-playlist-in-redis")
-	existingPlaylist, err := redisClient.GetPlaylist(cfg.DiscordGuildID, playlistConfig.Name)
+	segment := txn.StartSegment("check-playlist-metadata-in-redis")
+	existingPlaylist, err := redisClient.GetPlaylistMetadata(cfg.DiscordGuildID, playlistConfig.Name)
 	segment.End()
 
 	refreshNeeded := true

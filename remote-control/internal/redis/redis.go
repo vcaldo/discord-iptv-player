@@ -270,6 +270,51 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 	return playlist, err
 }
 
+// GetPlaylistMetadata retrieves only the playlist metadata (name, source, updated, length)
+// without fetching channel data. This is much more efficient when you only need to check
+// playlist age or basic info without needing the full channel list.
+func (c *Client) GetPlaylistMetadata(guildID, playlistName string) (*models.Playlist, error) {
+	var playlist *models.Playlist
+	err := c.instrumentOperation("get-playlist-metadata", func() error {
+		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
+
+		exists, err := c.rdb.Exists(playlistKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to check if playlist exists: %w", err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
+		}
+
+		playlistData, err := c.rdb.HGetAll(playlistKey).Result()
+		if err != nil {
+			return fmt.Errorf("failed to retrieve playlist metadata: %w", err)
+		}
+
+		playlist = &models.Playlist{
+			Name:     playlistData["name"],
+			Source:   playlistData["source"],
+			Channels: []models.TvChannel{}, // Empty since we're not fetching channels
+		}
+
+		// Parse updated time
+		if updated, ok := playlistData["updated"]; ok && updated != "" {
+			parsedTime, err := time.Parse(time.RFC3339, updated)
+			if err != nil {
+				log.Printf("Warning: failed to parse updated time: %v", err)
+			} else {
+				playlist.Updated = parsedTime
+			}
+		}
+
+		log.Printf("retrieved playlist metadata for '%s' in guild %s (updated: %v)",
+			playlist.Name, guildID, playlist.Updated)
+		return nil
+	})
+
+	return playlist, err
+}
+
 func (c *Client) ListPlaylists(guildID string) ([]string, error) {
 	var playlistNames []string
 
