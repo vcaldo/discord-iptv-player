@@ -911,29 +911,27 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 SearchManager.toggleClearButton();
                 ViewManager.update();
             }, 150)
-        };
-
-        // Clipboard functionality
+        };        // Clipboard functionality
         const ClipboardManager = {
             async copy(channelId, event) {
                 if (!event) return;
 
                 const clickedElement = event.target.closest('.channel-id');
-                const feedback = clickedElement?.querySelector('.copy-feedback');
+                const feedback = clickedElement?.querySelector('.copy-feedback');                if (!clickedElement || !feedback) return;
 
-                if (!clickedElement || !feedback) return;
+                const discordCommand = '/tv channel:' + channelId;
 
                 try {
                     if (navigator.clipboard && window.isSecureContext) {
-                        await navigator.clipboard.writeText(channelId);
+                        await navigator.clipboard.writeText(discordCommand);
                     } else {
                         // Fallback for older browsers or non-secure contexts
-                        this.fallbackCopy(channelId);
+                        this.fallbackCopy(discordCommand);
                     }
                     this.showFeedback(clickedElement, feedback);
                 } catch (err) {
                     console.warn('Clipboard copy failed, using fallback:', err);
-                    this.fallbackCopy(channelId);
+                    this.fallbackCopy(discordCommand);
                     this.showFeedback(clickedElement, feedback);
                 }
             },
@@ -1122,7 +1120,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
                         '<img src="' + this.escapeHtml(logo) + '" alt="' + this.escapeHtml(displayName) + ' Logo" class="channel-logo" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="no-logo" style="display:none;">' + firstLetter + '</div>' :
                         '<div class="no-logo">' + firstLetter + '</div>';
 
-                    card.innerHTML = logoHtml + '<h3 class="channel-name">' + this.escapeHtml(displayName) + '</h3><span class="channel-id" onclick="copyChannelId(\'' + this.escapeHtml(id) + '\')" title="Click to copy channel ID">#' + this.escapeHtml(id) + ' <span class="copy-icon">📋</span><div class="copy-feedback">Copied!</div></span>';
+                    card.innerHTML = logoHtml + '<h3 class="channel-name">' + this.escapeHtml(displayName) + '</h3><span class="channel-id" onclick="copyChannelId(\'' + this.escapeHtml(id) + '\')" title="Click to copy Discord command">/tv channel:' + this.escapeHtml(id) + ' <span class="copy-icon">📋</span><div class="copy-feedback">Command copied!</div></span>';
                 });
             },
 
