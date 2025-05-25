@@ -65,16 +65,15 @@ func (c *CatalogGenerator) buildHeader(data CatalogData) string {
 }
 
 func (c *CatalogGenerator) buildCSS() string {
-	return `    <style>
-        :root {
+	return `    <style>        :root {
             /* Color Palette */
             --primary-bg: #0f2027;
             --secondary-bg: #2c5364;
             --surface-bg: rgba(20, 30, 40, 0.95);
-            --card-bg: #1f1f1f;
+            --card-bg: #2a3441;
             --input-bg: #1c1c1c;
             --border-color: #444;
-            --border-light: #333;
+            --border-light: #3a4a57;
 
             /* Text Colors */
             --text-primary: #f5f5f5;
