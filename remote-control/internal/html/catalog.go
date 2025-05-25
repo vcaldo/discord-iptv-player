@@ -255,9 +255,7 @@ func (c *CatalogGenerator) buildCSS() string {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 1.5rem;
-        }
-
-        .channel-card {
+        }        .channel-card {
             background: #1f1f1f;
             border-radius: 12px;
             padding: 1.5rem;
@@ -265,7 +263,7 @@ func (c *CatalogGenerator) buildCSS() string {
             transition: all 0.3s ease;
             border: 1px solid #333;
             position: relative;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .channel-card:hover {
@@ -289,16 +287,55 @@ func (c *CatalogGenerator) buildCSS() string {
             margin-bottom: 0.5rem;
             color: #f5f5f5;
             line-height: 1.4;
-        }
-
-        .channel-id {
+        }        .channel-id {
             color: #2c5364;
             font-weight: 600;
             font-size: 0.9rem;
             background: rgba(44, 83, 100, 0.1);
             padding: 4px 8px;
             border-radius: 4px;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            user-select: none;
+            position: relative;
+        }
+
+        .channel-id:hover {
+            background: rgba(44, 83, 100, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .copy-icon {
+            margin-left: 0.5rem;
+            font-size: 0.8rem;
+            opacity: 0.7;
+            transition: opacity 0.3s ease;
+        }
+
+        .channel-id:hover .copy-icon {
+            opacity: 1;
+        }
+
+        .copy-feedback {
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .copy-feedback.show {
+            opacity: 1;
         }
 
         .no-logo {
@@ -476,20 +513,57 @@ func (c *CatalogGenerator) buildChannelCard(channel models.TvChannel) string {
 	} else {
 		logoHTML = fmt.Sprintf(`<div class="no-logo">%s</div>`, string([]rune(escapedName)[0:1]))
 	}
-
 	return fmt.Sprintf(`                    <div class="channel-card" data-channel-name="%s">
                         %s
                         <h3 class="channel-name">%s</h3>
-                        <span class="channel-id">#%s</span>
+                        <span class="channel-id" onclick="copyChannelId('%s')" title="Click to copy channel ID">
+                            #%s <span class="copy-icon">📋</span>
+                            <div class="copy-feedback">Copied!</div>
+                        </span>
                     </div>
-`, strings.ToLower(escapedName), logoHTML, escapedName, escapedID)
+`, strings.ToLower(escapedName), logoHTML, escapedName, escapedID, escapedID)
 }
 
 func (c *CatalogGenerator) buildJavaScript() string {
-	return `    <script>
-        let currentCategory = 'all';
+	return `    <script>        let currentCategory = 'all';
         let searchTerm = '';
-        let categoriesExpanded = false;        function toggleCategoriesView() {
+        let categoriesExpanded = false;
+
+        // Copy channel ID to clipboard
+        async function copyChannelId(channelId) {
+            try {
+                await navigator.clipboard.writeText(channelId);
+
+                // Show feedback
+                const event = window.event;
+                const clickedElement = event.target.closest('.channel-id');
+                const feedback = clickedElement.querySelector('.copy-feedback');
+
+                feedback.classList.add('show');
+                setTimeout(() => {
+                    feedback.classList.remove('show');
+                }, 2000);
+
+            } catch (err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = channelId;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+
+                // Show feedback
+                const event = window.event;
+                const clickedElement = event.target.closest('.channel-id');
+                const feedback = clickedElement.querySelector('.copy-feedback');
+
+                feedback.classList.add('show');
+                setTimeout(() => {
+                    feedback.classList.remove('show');
+                }, 2000);
+            }
+        }function toggleCategoriesView() {
             const grid = document.getElementById('categoriesGrid');
             const nav = document.getElementById('categoriesNav');
             const btn = document.getElementById('showAllBtn');
