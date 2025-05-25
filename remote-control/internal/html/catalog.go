@@ -1250,7 +1250,6 @@ func (c *CatalogGenerator) buildJavaScript() string {
             update() {
                 if (!DOMCache.sections || !DOMCache.noResults) return;
 
-                let hasVisibleResults = false;
                 let allChannels = [];
 
                 // First, collect all channels that should be visible based on category and search
@@ -1259,18 +1258,10 @@ func (c *CatalogGenerator) buildJavaScript() string {
                     const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === category;
 
                     if (shouldShowCategory) {
-                        Utils.showElement(section);
                         const channels = this.getChannelsInSection(section);
 
                         // Add all matching channels to the global list
                         allChannels = allChannels.concat(channels);
-
-                        const hasVisibleChannels = this.filterChannelsInSection(section);
-                        if (hasVisibleChannels) {
-                            hasVisibleResults = true;
-                        }
-                    } else {
-                        Utils.hideElement(section);
                     }
                 });
 
@@ -1278,12 +1269,28 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 PaginationManager.updatePagination(allChannels);
 
                 // Show/hide no results message
+                const hasVisibleResults = this.checkForVisibleResults();
                 if (hasVisibleResults) {
                     Utils.hideElement(DOMCache.noResults);
                 } else {
                     Utils.showElement(DOMCache.noResults);
                 }
-            },            getChannelsInSection(section) {
+            },
+
+            checkForVisibleResults() {
+                // Check if any sections have visible channels after pagination
+                let hasResults = false;
+                DOMCache.sections.forEach(section => {
+                    const visibleChannels = section.querySelectorAll('.c:not([style*="display: none"])');
+                    const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === section.dataset.category;
+                    
+                    if (shouldShowCategory && visibleChannels.length > 0) {
+                        hasResults = true;
+                    }
+                });                return hasResults;
+            },
+
+            getChannelsInSection(section) {
                 const channels = section.querySelectorAll('.c');
                 return Array.from(channels); // Return all channels, let pagination handle filtering
             },
@@ -1342,9 +1349,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
 
                     return categoryMatch && searchMatch;
                 });
-            },
-
-            batchUpdateSections(filteredChannelData) {
+            },            batchUpdateSections(filteredChannelData) {
                 const startIndex = (AppState.pagination.currentPage - 1) * AppState.pagination.pageSize;
                 const endIndex = startIndex + AppState.pagination.pageSize;
                 const visibleChannelIds = new Set(
@@ -1375,7 +1380,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
                             }
                         });
 
-                        // Update section visibility and count
+                        // Update section visibility and count - always hide sections without visible channels
                         if (hasVisibleChannels) {
                             updates.push(() => Utils.showElement(section));
 
@@ -1384,7 +1389,8 @@ func (c *CatalogGenerator) buildJavaScript() string {
                                 const totalInCategory = channels.length;
                                 updates.push(() => countSpan.textContent = totalInCategory);
                             }
-                        } else if (AppState.searchTerm !== '') {
+                        } else {
+                            // Hide section if no channels are visible on current page
                             updates.push(() => Utils.hideElement(section));
                         }
                     } else {
@@ -1450,9 +1456,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
 
                 // Update sections visibility based on whether they have visible channels
                 this.updateSectionVisibility();
-            },
-
-            updateSectionVisibility() {
+            },            updateSectionVisibility() {
                 DOMCache.sections.forEach(section => {
                     const visibleChannels = section.querySelectorAll('.c:not([style*="display: none"])');
                     const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === section.dataset.category;
@@ -1473,11 +1477,12 @@ func (c *CatalogGenerator) buildJavaScript() string {
                                 Utils.hideElement(paginationContainer);
                             }
                         }
-                    } else if (shouldShowCategory && visibleChannels.length === 0 && AppState.searchTerm !== '') {
+                    } else {
+                        // Hide section if no channels are visible (regardless of search state)
                         Utils.hideElement(section);
                     }
                 });
-            },            updatePaginationUI() {
+            },updatePaginationUI() {
                 const paginationContainer = document.querySelector('.global-pagination');
                 if (!paginationContainer) return;
 
