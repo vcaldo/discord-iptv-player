@@ -162,14 +162,48 @@ func (c *CatalogGenerator) buildCSS() string {
         @keyframes gradientShift {
             0%, 100% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
-        }
-
-        .subtitle {
+        }        .subtitle {
             text-align: center;
             font-size: 1.2rem;
             color: var(--text-secondary);
             margin-bottom: var(--spacing-md);
             font-weight: 500;
+        }
+
+        .playlist-command {
+            text-align: center;
+            margin: var(--spacing-sm) 0 var(--spacing-lg) 0;
+        }
+
+        .playlist-id {
+            color: var(--text-accent);
+            font-weight: 600;
+            font-size: 0.9rem;
+            background: var(--accent-primary);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-small);
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+            user-select: none;
+            position: relative;
+            border: 1px solid transparent;
+            will-change: transform;
+        }
+
+        .playlist-id:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            border-color: rgba(44, 83, 100, 0.3);
+        }
+
+        .playlist-id:active {
+            transform: translateY(0);
+        }
+
+        .playlist-id.copied {
+            animation: blink 0.6s ease-in-out;
         }
 
         .stats {
@@ -860,6 +894,9 @@ func (c *CatalogGenerator) buildNavigation(data CatalogData) string {
         <div class="container">
             <h1>IPTV Channel Catalog</h1>
             <div class="subtitle">%s</div>
+            <div class="playlist-command">
+                <span class="playlist-id" onclick="copyPlaylistId('%s')" title="Click to copy Discord command">/playlist name:%s <span class="copy-icon">📋</span><div class="copy-feedback">Command copied!</div></span>
+            </div>
             <div class="stats">%d categories • %d channels • Generated on %s</div>
         </div>
     </header>    <div class="container">
@@ -872,7 +909,7 @@ func (c *CatalogGenerator) buildNavigation(data CatalogData) string {
             <div class="categories-grid collapsed" id="categoriesGrid">                <button class="category-btn show-all-btn active" onclick="toggleCategoriesView()" id="showAllBtn">
                     Show All Categories (%d) <span class="expand-icon">▼</span>
                 </button>
-`, html.EscapeString(data.PlaylistName), len(data.Categories), data.TotalChannels, html.EscapeString(data.Date), len(data.Categories)))
+`, html.EscapeString(data.PlaylistName), html.EscapeString(data.PlaylistName), html.EscapeString(data.PlaylistName), len(data.Categories), data.TotalChannels, html.EscapeString(data.Date), len(data.Categories)))
 	for _, category := range data.Categories {
 		channelCount := len(data.CategoryChannels[category])
 		nav.WriteString(fmt.Sprintf(`                <button class="category-btn" onclick="toggleCategory('%s')" data-category="%s">
@@ -1114,6 +1151,31 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 const feedback = clickedElement?.querySelector('.copy-feedback');                if (!clickedElement || !feedback) return;
 
                 const discordCommand = '/tv channel:' + channelId;
+
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(discordCommand);
+                    } else {
+                        // Fallback for older browsers or non-secure contexts
+                        this.fallbackCopy(discordCommand);
+                    }
+                    this.showFeedback(clickedElement, feedback);
+                } catch (err) {
+                    console.warn('Clipboard copy failed, using fallback:', err);
+                    this.fallbackCopy(discordCommand);
+                    this.showFeedback(clickedElement, feedback);
+                }
+            },
+
+            async copyPlaylist(playlistName, event) {
+                if (!event) return;
+
+                const clickedElement = event.target.closest('.playlist-id');
+                const feedback = clickedElement?.querySelector('.copy-feedback');
+
+                if (!clickedElement || !feedback) return;
+
+                const discordCommand = '/playlist name:' + playlistName;
 
                 try {
                     if (navigator.clipboard && window.isSecureContext) {
@@ -1703,6 +1765,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
         };        // Global functions (needed for inline onclick handlers)
         window.clearSearch = () => SearchManager.clear();
         window.copyChannelId = (channelId) => ClipboardManager.copy(channelId, window.event);
+        window.copyPlaylistId = (playlistName) => ClipboardManager.copyPlaylist(playlistName, window.event);
         window.toggleCategoriesView = () => CategoryManager.toggleView();
         window.toggleCategory = (category) => CategoryManager.toggle(category);
         window.goToFirstPage = () => PaginationManager.goToFirstPage();
