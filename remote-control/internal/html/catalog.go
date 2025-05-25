@@ -66,58 +66,122 @@ func (c *CatalogGenerator) buildHeader(data CatalogData) string {
 
 func (c *CatalogGenerator) buildCSS() string {
 	return `    <style>
+        :root {
+            /* Color Palette */
+            --primary-bg: #0f2027;
+            --secondary-bg: #2c5364;
+            --surface-bg: rgba(20, 30, 40, 0.95);
+            --card-bg: #1f1f1f;
+            --input-bg: #1c1c1c;
+            --border-color: #444;
+            --border-light: #333;
+
+            /* Text Colors */
+            --text-primary: #f5f5f5;
+            --text-secondary: #bbb;
+            --text-muted: #999;
+            --text-accent: #2c5364;
+
+            /* Interactive Colors */
+            --accent-primary: rgba(44, 83, 100, 0.1);
+            --accent-hover: rgba(44, 83, 100, 0.2);
+            --success-color: #27ae60;
+            --success-bg: rgba(46, 204, 113, 0.3);
+
+            /* Shadows */
+            --shadow-light: 0 4px 15px rgba(0, 0, 0, 0.3);
+            --shadow-medium: 0 4px 20px rgba(0, 0, 0, 0.5);
+            --shadow-heavy: 0 8px 30px rgba(0, 0, 0, 0.5);
+
+            /* Transitions */
+            --transition-fast: 0.2s ease;
+            --transition-normal: 0.3s ease;
+            --transition-slow: 0.4s ease;
+
+            /* Border Radius */
+            --radius-small: 4px;
+            --radius-medium: 8px;
+            --radius-large: 12px;
+            --radius-xl: 15px;
+            --radius-pill: 25px;
+
+            /* Spacing */
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --spacing-xl: 2rem;
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
+        *:focus {
+            outline: 2px solid var(--secondary-bg);
+            outline-offset: 2px;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             line-height: 1.6;
-            color: #f5f5f5;
-            background: linear-gradient(135deg, #0f2027 0%, #2c5364 100%);
+            color: var(--text-primary);
+            background: linear-gradient(135deg, var(--primary-bg) 0%, var(--secondary-bg) 50%, var(--primary-bg) 100%);
+            background-attachment: fixed;
             min-height: 100vh;
-        }
-
-        .container {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }        .container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 0 20px;
+            padding: 0 var(--spacing-xl);
         }
 
         header {
-            background: rgba(20, 30, 40, 0.95);
+            background: var(--surface-bg);
             backdrop-filter: blur(10px);
-            padding: 2rem 0;
-            margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            -webkit-backdrop-filter: blur(10px);
+            padding: var(--spacing-xl) 0;
+            margin-bottom: var(--spacing-xl);
+            box-shadow: var(--shadow-medium);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         h1 {
-            font-size: 2.5rem;
+            font-size: clamp(2rem, 5vw, 2.5rem);
             font-weight: 700;
             text-align: center;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, #0f2027, #2c5364);
+            margin-bottom: var(--spacing-sm);
+            background: linear-gradient(135deg, var(--primary-bg), var(--secondary-bg), var(--primary-bg));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+            background-size: 200% 200%;
+            animation: gradientShift 8s ease-in-out infinite;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
         .subtitle {
             text-align: center;
             font-size: 1.2rem;
-            color: #bbb;
-            margin-bottom: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-md);
+            font-weight: 500;
         }
 
         .stats {
             text-align: center;
             font-size: 1rem;
-            color: #999;
+            color: var(--text-muted);
+            font-weight: 400;
         }        .search-container {
-            margin: 2rem 0;
+            margin: var(--spacing-xl) 0;
             text-align: center;
             width: 100%;
             display: flex;
@@ -133,18 +197,27 @@ func (c *CatalogGenerator) buildCSS() string {
 
         .search-box {
             width: 100%;
-            padding: 12px 45px 12px 20px;
+            padding: 12px 45px 12px var(--spacing-xl);
             font-size: 1rem;
-            border: 2px solid #444;
-            background: #1c1c1c;
-            color: #f5f5f5;
-            border-radius: 25px;
+            border: 2px solid var(--border-color);
+            background: var(--input-bg);
+            color: var(--text-primary);
+            border-radius: var(--radius-pill);
             outline: none;
-            transition: border-color 0.3s ease;
+            transition: all var(--transition-normal);
+            font-weight: 500;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .search-box:focus {
-            border-color: #2c5364;
+            border-color: var(--secondary-bg);
+            box-shadow: 0 0 0 3px rgba(44, 83, 100, 0.1), inset 0 2px 4px rgba(0, 0, 0, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .search-box::placeholder {
+            color: var(--text-muted);
+            font-weight: 400;
         }
 
         .clear-search {
@@ -154,49 +227,55 @@ func (c *CatalogGenerator) buildCSS() string {
             transform: translateY(-50%);
             background: none;
             border: none;
-            color: #999;
+            color: var(--text-muted);
             font-size: 1.2rem;
             cursor: pointer;
             padding: 5px;
             border-radius: 50%;
-            transition: all 0.3s ease;
+            transition: all var(--transition-normal);
             display: none;
             width: 25px;
             height: 25px;
             align-items: center;
             justify-content: center;
+            will-change: transform;
         }
 
         .clear-search:hover {
-            background: rgba(44, 83, 100, 0.2);
-            color: #f5f5f5;
+            background: var(--accent-hover);
+            color: var(--text-primary);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .clear-search:active {
+            transform: translateY(-50%) scale(0.95);
         }
 
         .clear-search.visible {
             display: flex;
-        }
-
-        .categories-nav {
-            background: rgba(20, 30, 40, 0.95);
+        }        .categories-nav {
+            background: var(--surface-bg);
             backdrop-filter: blur(10px);
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            border-radius: 15px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            -webkit-backdrop-filter: blur(10px);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-xl);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-medium);
             position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .categories-nav::after {
             content: '';
             position: absolute;
-            bottom: 1.5rem;
-            left: 1.5rem;
-            right: 1.5rem;
+            bottom: var(--spacing-lg);
+            left: var(--spacing-lg);
+            right: var(--spacing-lg);
             height: 30px;
-            background: linear-gradient(transparent, rgba(20, 30, 40, 0.95));
+            background: linear-gradient(transparent, var(--surface-bg));
             pointer-events: none;
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: opacity var(--transition-normal);
         }
 
         .categories-nav.collapsed::after {
@@ -206,14 +285,14 @@ func (c *CatalogGenerator) buildCSS() string {
         .categories-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
+            gap: var(--spacing-md);
+            margin-top: var(--spacing-md);
             overflow: hidden;
-            transition: max-height 0.4s ease, opacity 0.3s ease;
+            transition: max-height var(--transition-slow), opacity var(--transition-normal);
         }
 
         .categories-grid.collapsed {
-            max-height: calc(3 * (52px + 1rem) + 52px);
+            max-height: calc(3 * (52px + var(--spacing-md)) + 52px);
         }
 
         .categories-grid.expanded {
@@ -221,18 +300,36 @@ func (c *CatalogGenerator) buildCSS() string {
         }
 
         .category-btn {
-            background: linear-gradient(135deg, #0f2027, #2c5364);
+            background: linear-gradient(135deg, var(--primary-bg), var(--secondary-bg));
             color: white;
             border: none;
-            padding: 12px 20px;
-            border-radius: 8px;
+            padding: 12px var(--spacing-xl);
+            border-radius: var(--radius-medium);
             cursor: pointer;
             font-size: 1rem;
             font-weight: 600;
-            transition: all 0.3s ease;
+            transition: all var(--transition-normal);
             text-decoration: none;
             display: block;
             text-align: center;
+            position: relative;
+            overflow: hidden;
+            will-change: transform;
+        }
+
+        .category-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .category-btn:hover::before {
+            left: 100%;
         }
 
         .category-btn:hover {
@@ -240,15 +337,17 @@ func (c *CatalogGenerator) buildCSS() string {
             box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
         }
 
-        .category-btn.active {
-            background: linear-gradient(135deg, #2c5364, #0f2027);
-            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
+        .category-btn:active {
+            transform: translateY(0);
         }
 
-        .show-all-btn {
-            background: linear-gradient(135deg, #2c5364, #0f2027);
+        .category-btn.active {
+            background: linear-gradient(135deg, var(--secondary-bg), var(--primary-bg));
+            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
+        }        .show-all-btn {
+            background: linear-gradient(135deg, var(--secondary-bg), var(--primary-bg));
             grid-column: 1 / -1;
-            margin-bottom: 1rem;
+            margin-bottom: var(--spacing-md);
             position: relative;
         }
 
@@ -257,8 +356,9 @@ func (c *CatalogGenerator) buildCSS() string {
         }
 
         .expand-icon {
-            margin-left: 0.5rem;
-            transition: transform 0.3s ease;
+            margin-left: var(--spacing-sm);
+            transition: transform var(--transition-normal);
+            display: inline-block;
         }
 
         .show-all-btn.expanded .expand-icon {
@@ -266,12 +366,15 @@ func (c *CatalogGenerator) buildCSS() string {
         }
 
         .category-section {
-            background: rgba(20, 30, 40, 0.95);
+            background: var(--surface-bg);
             backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-xl);
+            margin-bottom: var(--spacing-xl);
+            box-shadow: var(--shadow-medium);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            will-change: transform;
         }
 
         .category-section.hidden {
@@ -279,68 +382,115 @@ func (c *CatalogGenerator) buildCSS() string {
         }
 
         .category-title {
-            font-size: 2rem;
+            font-size: clamp(1.5rem, 4vw, 2rem);
             font-weight: 700;
-            margin-bottom: 1.5rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 3px solid #2c5364;
-            color: #f5f5f5;
+            margin-bottom: var(--spacing-lg);
+            padding-bottom: var(--spacing-sm);
+            border-bottom: 3px solid var(--secondary-bg);
+            color: var(--text-primary);
+            position: relative;
+        }
+
+        .category-title::after {
+            content: '';
+            position: absolute;
+            bottom: -3px;
+            left: 0;
+            width: 50px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--secondary-bg), transparent);
         }
 
         .channels-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 1.5rem;
+            gap: var(--spacing-lg);
         }        .channel-card {
-            background: #1f1f1f;
-            border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            transition: all 0.3s ease;
-            border: 1px solid #333;
+            background: var(--card-bg);
+            border-radius: var(--radius-large);
+            padding: var(--spacing-lg);
+            box-shadow: var(--shadow-light);
+            transition: all var(--transition-normal);
+            border: 1px solid var(--border-light);
             position: relative;
             overflow: visible;
+            will-change: transform;
+        }
+
+        .channel-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, transparent, rgba(44, 83, 100, 0.05));
+            opacity: 0;
+            transition: opacity var(--transition-normal);
+            border-radius: var(--radius-large);
+            pointer-events: none;
+        }
+
+        .channel-card:hover::before {
+            opacity: 1;
         }
 
         .channel-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--shadow-heavy);
+            border-color: rgba(44, 83, 100, 0.3);
         }
 
         .channel-logo {
             width: 60px;
             height: 60px;
             object-fit: contain;
-            border-radius: 8px;
-            margin-bottom: 1rem;
+            border-radius: var(--radius-medium);
+            margin-bottom: var(--spacing-md);
             background: #2c2c2c;
-            padding: 8px;
+            padding: var(--spacing-sm);
+            transition: transform var(--transition-fast);
+        }
+
+        .channel-card:hover .channel-logo {
+            transform: scale(1.05);
         }
 
         .channel-name {
             font-size: 1.1rem;
             font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #f5f5f5;
+            margin-bottom: var(--spacing-sm);
+            color: var(--text-primary);
             line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }        .channel-id {
-            color: #2c5364;
+            color: var(--text-accent);
             font-weight: 600;
             font-size: 0.9rem;
-            background: rgba(44, 83, 100, 0.1);
-            padding: 4px 8px;
-            border-radius: 4px;
+            background: var(--accent-primary);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-small);
             display: inline-flex;
             align-items: center;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all var(--transition-normal);
             user-select: none;
             position: relative;
+            border: 1px solid transparent;
+            will-change: transform;
         }
 
         .channel-id:hover {
-            background: rgba(44, 83, 100, 0.2);
+            background: var(--accent-hover);
             transform: translateY(-1px);
+            border-color: rgba(44, 83, 100, 0.3);
+        }
+
+        .channel-id:active {
+            transform: translateY(0);
         }
 
         .channel-id.copied {
@@ -349,31 +499,32 @@ func (c *CatalogGenerator) buildCSS() string {
 
         @keyframes blink {
             0%, 100% {
-                background: rgba(44, 83, 100, 0.1);
-                color: #2c5364;
+                background: var(--accent-primary);
+                color: var(--text-accent);
             }
             50% {
-                background: rgba(46, 204, 113, 0.3);
-                color: #27ae60;
-                box-shadow: 0 0 10px rgba(46, 204, 113, 0.3);
+                background: var(--success-bg);
+                color: var(--success-color);
+                box-shadow: 0 0 10px var(--success-bg);
             }
         }
 
         .copy-icon {
-            margin-left: 0.5rem;
+            margin-left: var(--spacing-sm);
             font-size: 0.8rem;
             opacity: 0.7;
-            transition: opacity 0.3s ease;
+            transition: all var(--transition-fast);
         }
 
         .channel-id:hover .copy-icon {
             opacity: 1;
+            transform: scale(1.1);
         }        .copy-feedback {
             position: absolute;
             top: -35px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(44, 83, 100, 0.95);
+            background: var(--surface-bg);
             color: #e0e6ed;
             padding: 6px 12px;
             border-radius: 6px;
@@ -382,62 +533,90 @@ func (c *CatalogGenerator) buildCSS() string {
             white-space: nowrap;
             opacity: 0;
             pointer-events: none;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all var(--transition-normal);
+            box-shadow: var(--shadow-light);
             border: 1px solid rgba(96, 165, 250, 0.3);
             z-index: 1000;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .copy-feedback::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: var(--surface-bg);
         }
 
         .copy-feedback.show {
             opacity: 1;
             transform: translateX(-50%) translateY(-5px);
             animation: fadeInOut 0.5s ease-in-out;
-        }        @keyframes fadeInOut {
+        }
+
+        @keyframes fadeInOut {
             0% {
                 opacity: 0;
-                transform: translateX(-50%) translateY(0px);
+                transform: translateX(-50%) translateY(0px) scale(0.8);
             }
             30% {
                 opacity: 1;
-                transform: translateX(-50%) translateY(-5px);
+                transform: translateX(-50%) translateY(-5px) scale(1);
             }
             70% {
                 opacity: 1;
-                transform: translateX(-50%) translateY(-5px);
+                transform: translateX(-50%) translateY(-5px) scale(1);
             }
             100% {
                 opacity: 0;
-                transform: translateX(-50%) translateY(-10px);
+                transform: translateX(-50%) translateY(-10px) scale(0.9);
             }
         }
 
         .no-logo {
             width: 60px;
             height: 60px;
-            background: linear-gradient(135deg, #0f2027, #2c5364);
-            border-radius: 8px;
+            background: linear-gradient(135deg, var(--primary-bg), var(--secondary-bg));
+            border-radius: var(--radius-medium);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: 700;
             font-size: 1.5rem;
-            margin-bottom: 1rem;
+            margin-bottom: var(--spacing-md);
+            transition: transform var(--transition-fast);
+        }
+
+        .channel-card:hover .no-logo {
+            transform: scale(1.05);
         }
 
         .no-results {
             text-align: center;
             padding: 3rem;
-            color: #aaa;
+            color: var(--text-secondary);
             font-size: 1.2rem;
+        }
+
+        .no-results h3 {
+            margin-bottom: var(--spacing-md);
+            color: var(--text-primary);
         }
 
         .footer {
             text-align: center;
-            padding: 2rem;
+            padding: var(--spacing-xl);
             color: rgba(255, 255, 255, 0.6);
             font-size: 0.9rem;
-        }        @media (max-width: 768px) {
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--surface-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }@media (max-width: 768px) {
             .container {
                 padding: 0 15px;
             }
