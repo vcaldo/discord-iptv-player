@@ -119,8 +119,9 @@ func (c *CatalogGenerator) buildCSS() string {
         }        .search-container {
             margin: 2rem 0;
             text-align: center;
-            position: relative;
-            display: inline-block;
+            width: 100%;
+            display: flex;
+            justify-content: center;
         }
 
         .search-wrapper {
