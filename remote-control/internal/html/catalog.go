@@ -970,9 +970,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 totalChannels: 0,
                 visibleChannels: 0
             }
-        };
-
-        // DOM element cache for better performance
+        };        // Enhanced DOM cache with channel data optimization
         const DOMCache = {
             searchBox: null,
             clearBtn: null,
@@ -983,6 +981,11 @@ func (c *CatalogGenerator) buildJavaScript() string {
             sections: null,
             categoryBtns: null,
             mainContent: null,
+
+            // Performance optimization: Cache channel data
+            allChannelData: [],
+            visibleChannelElements: new Map(),
+            sectionChannelMap: new Map(),
 
             init() {
                 this.searchBox = document.getElementById('searchBox');
@@ -996,12 +999,45 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 // Cache NodeLists
                 this.sections = document.querySelectorAll('.category-section');
                 this.categoryBtns = document.querySelectorAll('.category-btn');
+
+                // Performance: Pre-cache all channel data
+                this.cacheChannelData();
+            },
+
+            cacheChannelData() {
+                console.time('Channel data caching');
+                this.allChannelData = [];
+                this.sectionChannelMap.clear();
+
+                this.sections.forEach(section => {
+                    const category = section.dataset.category;
+                    const channels = Array.from(section.querySelectorAll('.c'));
+
+                    // Cache channels by category
+                    this.sectionChannelMap.set(category, channels);
+
+                    // Cache channel data for faster searching
+                    channels.forEach(channel => {
+                        this.allChannelData.push({
+                            element: channel,
+                            name: (channel.dataset.n || '').toLowerCase(),
+                            category: category,
+                            id: channel.dataset.i,
+                            logo: channel.dataset.logo
+                        });
+                    });
+                });                console.timeEnd('Channel data caching');
+                console.log('Cached ' + this.allChannelData.length + ' channels across ' + this.sections.length + ' categories');
             },
 
             refresh() {
-                // Refresh dynamic elements if needed
-                this.sections = document.querySelectorAll('.category-section');
-                this.categoryBtns = document.querySelectorAll('.category-btn');
+                // Only refresh if needed - avoid unnecessary DOM queries
+                const currentSectionCount = document.querySelectorAll('.category-section').length;
+                if (currentSectionCount !== this.sections.length) {
+                    this.sections = document.querySelectorAll('.category-section');
+                    this.categoryBtns = document.querySelectorAll('.category-btn');
+                    this.cacheChannelData();
+                }
             }
         };
 
@@ -1061,7 +1097,13 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 AppState.searchTerm = Utils.sanitizeInput(value);
                 AppState.pagination.currentPage = 1; // Reset to first page when searching
                 SearchManager.toggleClearButton();
-                ViewManager.update();
+
+                // Use optimized search for large datasets
+                if (DOMCache.allChannelData.length > 1000) {
+                    ViewManager.updateOptimized();
+                } else {
+                    ViewManager.update();
+                }
             }, 150)
         };        // Clipboard functionality
         const ClipboardManager = {
@@ -1259,6 +1301,109 @@ func (c *CatalogGenerator) buildJavaScript() string {
                         hasVisibleChannels = true;
                     }
                 });                return hasVisibleChannels;
+            },
+
+            // Optimized update method for large datasets
+            updateOptimized() {
+                console.time('ViewManager.updateOptimized');
+
+                if (!DOMCache.sections || !DOMCache.noResults) return;
+
+                // Use cached channel data for better performance
+                const filteredChannelData = this.getFilteredChannelData();
+
+                // Apply global pagination
+                PaginationManager.updatePaginationOptimized(filteredChannelData);
+
+                // Batch update sections
+                this.batchUpdateSections(filteredChannelData);
+
+                // Show/hide no results message
+                if (filteredChannelData.length > 0) {
+                    Utils.hideElement(DOMCache.noResults);
+                } else {
+                    Utils.showElement(DOMCache.noResults);
+                }
+
+                console.timeEnd('ViewManager.updateOptimized');
+            },
+
+            getFilteredChannelData() {
+                if (!DOMCache.allChannelData || DOMCache.allChannelData.length === 0) {
+                    // Fallback to regular method if cache is empty
+                    DOMCache.cacheChannelData();
+                }
+
+                return DOMCache.allChannelData.filter(channelData => {
+                    const categoryMatch = AppState.currentCategory === 'all' ||
+                                        AppState.currentCategory === channelData.category;
+                    const searchMatch = AppState.searchTerm === '' ||
+                                      channelData.name.includes(AppState.searchTerm);
+
+                    return categoryMatch && searchMatch;
+                });
+            },
+
+            batchUpdateSections(filteredChannelData) {
+                const startIndex = (AppState.pagination.currentPage - 1) * AppState.pagination.pageSize;
+                const endIndex = startIndex + AppState.pagination.pageSize;
+                const visibleChannelIds = new Set(
+                    filteredChannelData
+                        .slice(startIndex, endIndex)
+                        .map(ch => ch.id)
+                );
+
+                // Batch DOM updates to minimize reflows
+                const updates = [];
+
+                DOMCache.sections.forEach(section => {
+                    const category = section.dataset.category;
+                    const shouldShowCategory = AppState.currentCategory === 'all' ||
+                                             AppState.currentCategory === category;
+
+                    if (shouldShowCategory) {
+                        const channels = section.querySelectorAll('.c');
+                        let hasVisibleChannels = false;
+
+                        channels.forEach(channel => {
+                            const channelId = channel.dataset.id;
+                            if (visibleChannelIds.has(channelId)) {
+                                updates.push(() => Utils.showElement(channel));
+                                hasVisibleChannels = true;
+                            } else {
+                                updates.push(() => Utils.hideElement(channel));
+                            }
+                        });
+
+                        // Update section visibility and count
+                        if (hasVisibleChannels) {
+                            updates.push(() => Utils.showElement(section));
+
+                            const countSpan = section.querySelector('.channel-count');
+                            if (countSpan) {
+                                const totalInCategory = channels.length;
+                                updates.push(() => countSpan.textContent = totalInCategory);
+                            }
+                        } else if (AppState.searchTerm !== '') {
+                            updates.push(() => Utils.hideElement(section));
+                        }
+                    } else {
+                        updates.push(() => Utils.hideElement(section));
+                    }
+                });
+
+                // Execute all DOM updates in a single batch
+                updates.forEach(update => update());
+
+                // Update pagination controls visibility
+                const paginationContainer = document.querySelector('.global-pagination');
+                if (paginationContainer) {
+                    if (AppState.pagination.totalPages > 1) {
+                        Utils.showElement(paginationContainer, 'flex');
+                    } else {
+                        Utils.hideElement(paginationContainer);
+                    }
+                }
             }
         };
 
@@ -1467,10 +1612,35 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 if (searchInfo) {
                     searchInfo.textContent = AppState.pagination.totalChannels + ' channels found';
                 }
+            },            scrollToTop() {
+                Utils.scrollToElement(DOMCache.mainContent);
             },
 
-            scrollToTop() {
-                Utils.scrollToElement(DOMCache.mainContent);
+            // Optimized pagination method for large datasets
+            updatePaginationOptimized(filteredChannelData) {
+                AppState.pagination.totalChannels = filteredChannelData.length;
+                AppState.pagination.totalPages = Math.ceil(filteredChannelData.length / AppState.pagination.pageSize);
+
+                // Reset to page 1 if current page is beyond total pages
+                if (AppState.pagination.currentPage > AppState.pagination.totalPages) {
+                    AppState.pagination.currentPage = 1;
+                }
+
+                // Ensure current page is at least 1
+                if (AppState.pagination.currentPage < 1) {
+                    AppState.pagination.currentPage = 1;
+                }
+
+                // Calculate visible channels for current page
+                const startIndex = (AppState.pagination.currentPage - 1) * AppState.pagination.pageSize;
+                const endIndex = startIndex + AppState.pagination.pageSize;
+                AppState.pagination.visibleChannels = Math.min(
+                    AppState.pagination.pageSize,
+                    AppState.pagination.totalChannels - startIndex
+                );
+
+                this.updatePaginationUI();
+                this.updateChannelCounts();
             }
         };// Dynamic content generator for compact cards
         const ContentGenerator = {
