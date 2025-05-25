@@ -1345,7 +1345,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 DOMCache.sections.forEach(section => {
                     const visibleChannels = section.querySelectorAll('.c:not([style*="display: none"])');
                     const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === section.dataset.category;
-                    
+
                     if (shouldShowCategory && visibleChannels.length > 0) {
                         hasResults = true;
                     }
@@ -1355,24 +1355,20 @@ func (c *CatalogGenerator) buildJavaScript() string {
             getChannelsInSection(section) {
                 const channels = section.querySelectorAll('.c');
                 return Array.from(channels); // Return all channels, let pagination handle filtering
-            },
-
-            filterChannelsInSection(section) {
+            },            filterChannelsInSection(section) {
                 const channels = section.querySelectorAll('.c');
                 let hasVisibleChannels = false;
 
                 channels.forEach(channel => {
                     const channelName = channel.dataset.n;
                     const matchesSearch = AppState.searchTerm === '' ||
-                                        (channelName && channelName.includes(AppState.searchTerm));
+                                        (channelName && channelName.toLowerCase().includes(AppState.searchTerm));
 
                     if (matchesSearch) {
                         hasVisibleChannels = true;
                     }
-                });                return hasVisibleChannels;
-            },
-
-            // Optimized update method for large datasets
+                });return hasVisibleChannels;
+            },            // Optimized update method for large datasets
             updateOptimized() {
                 console.time('ViewManager.updateOptimized');
 
@@ -1381,11 +1377,11 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 // Use cached channel data for better performance
                 const filteredChannelData = this.getFilteredChannelData();
 
-                // Apply global pagination
-                PaginationManager.updatePaginationOptimized(filteredChannelData);
+                // Convert filtered channel data back to DOM elements for pagination
+                const filteredChannelElements = filteredChannelData.map(ch => ch.element);
 
-                // Batch update sections
-                this.batchUpdateSections(filteredChannelData);
+                // Apply global pagination using regular method
+                PaginationManager.updatePagination(filteredChannelElements);
 
                 // Show/hide no results message
                 if (filteredChannelData.length > 0) {
@@ -1433,7 +1429,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
                         let hasVisibleChannels = false;
 
                         channels.forEach(channel => {
-                            const channelId = channel.dataset.id;
+                            const channelId = channel.dataset.i; // Use 'i' not 'id'
                             if (visibleChannelIds.has(channelId)) {
                                 updates.push(() => Utils.showElement(channel));
                                 hasVisibleChannels = true;
@@ -1473,15 +1469,13 @@ func (c *CatalogGenerator) buildJavaScript() string {
                     }
                 }
             }
-        };
-
-        // Pagination management
+        };        // Pagination management
         const PaginationManager = {
             updatePagination(allChannels) {
                 const filteredChannels = allChannels.filter(channel => {
                     const channelName = channel.dataset.n;
                     return AppState.searchTerm === '' ||
-                           (channelName && channelName.includes(AppState.searchTerm));
+                           (channelName && channelName.toLowerCase().includes(AppState.searchTerm));
                 });
 
                 AppState.pagination.totalChannels = filteredChannels.length;
@@ -1681,33 +1675,6 @@ func (c *CatalogGenerator) buildJavaScript() string {
                 }
             },            scrollToTop() {
                 Utils.scrollToElement(DOMCache.mainContent);
-            },
-
-            // Optimized pagination method for large datasets
-            updatePaginationOptimized(filteredChannelData) {
-                AppState.pagination.totalChannels = filteredChannelData.length;
-                AppState.pagination.totalPages = Math.ceil(filteredChannelData.length / AppState.pagination.pageSize);
-
-                // Reset to page 1 if current page is beyond total pages
-                if (AppState.pagination.currentPage > AppState.pagination.totalPages) {
-                    AppState.pagination.currentPage = 1;
-                }
-
-                // Ensure current page is at least 1
-                if (AppState.pagination.currentPage < 1) {
-                    AppState.pagination.currentPage = 1;
-                }
-
-                // Calculate visible channels for current page
-                const startIndex = (AppState.pagination.currentPage - 1) * AppState.pagination.pageSize;
-                const endIndex = startIndex + AppState.pagination.pageSize;
-                AppState.pagination.visibleChannels = Math.min(
-                    AppState.pagination.pageSize,
-                    AppState.pagination.totalChannels - startIndex
-                );
-
-                this.updatePaginationUI();
-                this.updateChannelCounts();
             }
         };// Dynamic content generator for compact cards
         const ContentGenerator = {
@@ -1806,37 +1773,4 @@ func (c *CatalogGenerator) buildJavaScript() string {
             initializeApp();
         }
     </script>`
-}
-
-// EstimateFileSize returns the estimated file size in bytes and a summary of optimizations
-func (c *CatalogGenerator) EstimateFileSize(totalChannels int) (int, string) {
-	// Base HTML structure (header, CSS, JavaScript, footer): ~15KB
-	baseSize := 15 * 1024
-
-	// Old method: ~280 bytes per channel (full HTML structure)
-	// New method: ~45 bytes per channel (minimal data attributes)
-	oldChannelSize := 280
-	newChannelSize := 45
-
-	oldTotalSize := baseSize + (totalChannels * oldChannelSize)
-	newTotalSize := baseSize + (totalChannels * newChannelSize)
-
-	reduction := float64(oldTotalSize-newTotalSize) / float64(oldTotalSize) * 100
-
-	summary := fmt.Sprintf(`File Size Optimization Summary:
-- Base structure: ~15KB
-- Old method: %d channels × %d bytes = %d KB total (%.1f MB)
-- New method: %d channels × %d bytes = %d KB total (%.1f MB)
-- Size reduction: %.1f%% (Saved: %.1f MB)
-- Techniques used:
-  • Minified HTML structure (removed whitespace/indentation)
-  • Compact CSS class names (.c instead of .channel-card)
-  • Data attributes instead of full HTML content
-  • JavaScript-based content generation
-  • Removed redundant HTML elements`,
-		totalChannels, oldChannelSize, oldTotalSize/1024, float64(oldTotalSize)/(1024*1024),
-		totalChannels, newChannelSize, newTotalSize/1024, float64(newTotalSize)/(1024*1024),
-		reduction, float64(oldTotalSize-newTotalSize)/(1024*1024))
-
-	return newTotalSize, summary
 }
