@@ -23,6 +23,7 @@ services:
       - tv-player/.env
     depends_on:
       - redis
+      - remote-control
     logging:
       driver: "json-file"
       options:
