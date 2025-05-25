@@ -75,8 +75,8 @@ func (c *CatalogGenerator) buildCSS() string {
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             line-height: 1.6;
-            color: #333;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #f5f5f5;
+            background: linear-gradient(135deg, #0f2027 0%, #2c5364 100%);
             min-height: 100vh;
         }
 
@@ -87,11 +87,11 @@ func (c *CatalogGenerator) buildCSS() string {
         }
 
         header {
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(20, 30, 40, 0.95);
             backdrop-filter: blur(10px);
             padding: 2rem 0;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
         }
 
         h1 {
@@ -99,7 +99,7 @@ func (c *CatalogGenerator) buildCSS() string {
             font-weight: 700;
             text-align: center;
             margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #0f2027, #2c5364);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -108,14 +108,14 @@ func (c *CatalogGenerator) buildCSS() string {
         .subtitle {
             text-align: center;
             font-size: 1.2rem;
-            color: #666;
+            color: #bbb;
             margin-bottom: 1rem;
         }
 
         .stats {
             text-align: center;
             font-size: 1rem;
-            color: #888;
+            color: #999;
         }
 
         .search-container {
@@ -128,23 +128,43 @@ func (c *CatalogGenerator) buildCSS() string {
             max-width: 500px;
             padding: 12px 20px;
             font-size: 1rem;
-            border: 2px solid #ddd;
+            border: 2px solid #444;
+            background: #1c1c1c;
+            color: #f5f5f5;
             border-radius: 25px;
             outline: none;
             transition: border-color 0.3s ease;
         }
 
         .search-box:focus {
-            border-color: #667eea;
+            border-color: #2c5364;
         }
 
         .categories-nav {
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(20, 30, 40, 0.95);
             backdrop-filter: blur(10px);
             padding: 1.5rem;
             margin-bottom: 2rem;
             border-radius: 15px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .categories-nav::after {
+            content: '';
+            position: absolute;
+            bottom: 1.5rem;
+            left: 1.5rem;
+            right: 1.5rem;
+            height: 30px;
+            background: linear-gradient(transparent, rgba(20, 30, 40, 0.95));
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .categories-nav.collapsed::after {
+            opacity: 1;
         }
 
         .categories-grid {
@@ -152,10 +172,20 @@ func (c *CatalogGenerator) buildCSS() string {
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 1rem;
             margin-top: 1rem;
+            overflow: hidden;
+            transition: max-height 0.4s ease, opacity 0.3s ease;
+        }
+
+        .categories-grid.collapsed {
+            max-height: calc(3 * (52px + 1rem) + 52px);
+        }
+
+        .categories-grid.expanded {
+            max-height: 2000px;
         }
 
         .category-btn {
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #0f2027, #2c5364);
             color: white;
             border: none;
             padding: 12px 20px;
@@ -171,31 +201,41 @@ func (c *CatalogGenerator) buildCSS() string {
 
         .category-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
         }
 
         .category-btn.active {
-            background: linear-gradient(135deg, #764ba2, #667eea);
-            box-shadow: 0 6px 20px rgba(118, 75, 162, 0.4);
+            background: linear-gradient(135deg, #2c5364, #0f2027);
+            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
         }
 
         .show-all-btn {
-            background: linear-gradient(135deg, #36d1dc, #5b86e5);
+            background: linear-gradient(135deg, #2c5364, #0f2027);
             grid-column: 1 / -1;
             margin-bottom: 1rem;
+            position: relative;
         }
 
         .show-all-btn:hover {
-            box-shadow: 0 6px 20px rgba(54, 209, 220, 0.4);
+            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
+        }
+
+        .expand-icon {
+            margin-left: 0.5rem;
+            transition: transform 0.3s ease;
+        }
+
+        .show-all-btn.expanded .expand-icon {
+            transform: rotate(180deg);
         }
 
         .category-section {
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(20, 30, 40, 0.95);
             backdrop-filter: blur(10px);
             border-radius: 15px;
             padding: 2rem;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
         }
 
         .category-section.hidden {
@@ -207,8 +247,8 @@ func (c *CatalogGenerator) buildCSS() string {
             font-weight: 700;
             margin-bottom: 1.5rem;
             padding-bottom: 0.5rem;
-            border-bottom: 3px solid #667eea;
-            color: #333;
+            border-bottom: 3px solid #2c5364;
+            color: #f5f5f5;
         }
 
         .channels-grid {
@@ -218,19 +258,19 @@ func (c *CatalogGenerator) buildCSS() string {
         }
 
         .channel-card {
-            background: white;
+            background: #1f1f1f;
             border-radius: 12px;
             padding: 1.5rem;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
             transition: all 0.3s ease;
-            border: 1px solid #eee;
+            border: 1px solid #333;
             position: relative;
             overflow: hidden;
         }
 
         .channel-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
         }
 
         .channel-logo {
@@ -239,7 +279,7 @@ func (c *CatalogGenerator) buildCSS() string {
             object-fit: contain;
             border-radius: 8px;
             margin-bottom: 1rem;
-            background: #f8f9fa;
+            background: #2c2c2c;
             padding: 8px;
         }
 
@@ -247,15 +287,15 @@ func (c *CatalogGenerator) buildCSS() string {
             font-size: 1.1rem;
             font-weight: 600;
             margin-bottom: 0.5rem;
-            color: #333;
+            color: #f5f5f5;
             line-height: 1.4;
         }
 
         .channel-id {
-            color: #667eea;
+            color: #2c5364;
             font-weight: 600;
             font-size: 0.9rem;
-            background: rgba(102, 126, 234, 0.1);
+            background: rgba(44, 83, 100, 0.1);
             padding: 4px 8px;
             border-radius: 4px;
             display: inline-block;
@@ -264,7 +304,7 @@ func (c *CatalogGenerator) buildCSS() string {
         .no-logo {
             width: 60px;
             height: 60px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #0f2027, #2c5364);
             border-radius: 8px;
             display: flex;
             align-items: center;
@@ -278,14 +318,14 @@ func (c *CatalogGenerator) buildCSS() string {
         .no-results {
             text-align: center;
             padding: 3rem;
-            color: #666;
+            color: #aaa;
             font-size: 1.2rem;
         }
 
         .footer {
             text-align: center;
             padding: 2rem;
-            color: rgba(255, 255, 255, 0.8);
+            color: rgba(255, 255, 255, 0.6);
             font-size: 0.9rem;
         }
 
@@ -301,6 +341,10 @@ func (c *CatalogGenerator) buildCSS() string {
             .categories-grid {
                 grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
                 gap: 0.8rem;
+            }
+
+            .categories-grid.collapsed {
+                max-height: calc(3 * (44px + 0.8rem) + 44px);
             }
 
             .category-btn {
@@ -326,6 +370,10 @@ func (c *CatalogGenerator) buildCSS() string {
             .categories-grid {
                 grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
             }
+
+            .categories-grid.collapsed {
+                max-height: calc(3 * (40px + 0.8rem) + 40px);
+            }
         }
     </style>`
 }
@@ -344,15 +392,12 @@ func (c *CatalogGenerator) buildNavigation(data CatalogData) string {
     <div class="container">
         <div class="search-container">
             <input type="text" id="searchBox" class="search-box" placeholder="Search channels...">
-        </div>
-
-        <nav class="categories-nav">
-            <div class="categories-grid">
-                <button class="category-btn show-all-btn active" onclick="showAllCategories()">
-                    Show All Categories (%d)
+        </div>        <nav class="categories-nav collapsed" id="categoriesNav">
+            <div class="categories-grid collapsed" id="categoriesGrid">
+                <button class="category-btn show-all-btn active" onclick="toggleCategoriesView()" id="showAllBtn">
+                    Show All Categories (%d) <span class="expand-icon">▼</span>
                 </button>
 `, html.EscapeString(data.PlaylistName), len(data.Categories), data.TotalChannels, html.EscapeString(data.Date), len(data.Categories)))
-
 	for _, category := range data.Categories {
 		channelCount := len(data.CategoryChannels[category])
 		nav.WriteString(fmt.Sprintf(`                <button class="category-btn" onclick="showCategory('%s')">
@@ -444,6 +489,34 @@ func (c *CatalogGenerator) buildJavaScript() string {
 	return `    <script>
         let currentCategory = 'all';
         let searchTerm = '';
+        let categoriesExpanded = false;        function toggleCategoriesView() {
+            const grid = document.getElementById('categoriesGrid');
+            const nav = document.getElementById('categoriesNav');
+            const btn = document.getElementById('showAllBtn');
+
+            categoriesExpanded = !categoriesExpanded;
+
+            if (categoriesExpanded) {
+                grid.classList.remove('collapsed');
+                grid.classList.add('expanded');
+                nav.classList.remove('collapsed');
+                btn.classList.add('expanded');
+                btn.innerHTML = btn.innerHTML.replace('▼', '▲');
+                btn.innerHTML = btn.innerHTML.replace('Show All Categories', 'Collapse Categories');
+            } else {
+                grid.classList.remove('expanded');
+                grid.classList.add('collapsed');
+                nav.classList.add('collapsed');
+                btn.classList.remove('expanded');
+                btn.innerHTML = btn.innerHTML.replace('▲', '▼');
+                btn.innerHTML = btn.innerHTML.replace('Collapse Categories', 'Show All Categories');
+            }
+
+            // If categories are collapsed, show all categories content
+            if (categoriesExpanded || currentCategory === 'all') {
+                showAllCategories();
+            }
+        }
 
         function showAllCategories() {
             currentCategory = 'all';
@@ -455,6 +528,11 @@ func (c *CatalogGenerator) buildJavaScript() string {
             currentCategory = category;
             updateView();
             updateActiveButton(category);
+
+            // If a specific category is selected, collapse the categories grid
+            if (categoriesExpanded) {
+                toggleCategoriesView();
+            }
         }
 
         function updateActiveButton(activeCategory) {
