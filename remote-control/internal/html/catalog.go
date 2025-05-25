@@ -294,62 +294,89 @@ func (c *CatalogGenerator) buildCSS() string {
 
         .categories-grid.expanded {
             max-height: 2000px;
-        }
-
-        .category-btn {
-            background: linear-gradient(135deg, var(--primary-bg), var(--secondary-bg));
-            color: white;
-            border: none;
-            padding: 12px var(--spacing-xl);
-            border-radius: var(--radius-medium);
+        }        .category-btn {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-light);
+            padding: var(--spacing-lg);
+            border-radius: var(--radius-large);
             cursor: pointer;
             font-size: 1rem;
             font-weight: 600;
             transition: all var(--transition-normal);
             text-decoration: none;
-            display: block;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             text-align: center;
             position: relative;
-            overflow: hidden;
+            overflow: visible;
             will-change: transform;
+            box-shadow: var(--shadow-light);
+            min-height: 60px;
         }
 
         .category-btn::before {
             content: '';
             position: absolute;
             top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            transition: left 0.5s ease;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, transparent, rgba(44, 83, 100, 0.05));
+            opacity: 0;
+            transition: opacity var(--transition-normal);
+            border-radius: var(--radius-large);
+            pointer-events: none;
         }
 
         .category-btn:hover::before {
-            left: 100%;
+            opacity: 1;
         }
 
         .category-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-heavy);
+            border-color: rgba(44, 83, 100, 0.3);
         }
 
         .category-btn:active {
-            transform: translateY(0);
+            transform: translateY(-2px);
         }
 
         .category-btn.active {
-            background: linear-gradient(135deg, var(--secondary-bg), var(--primary-bg));
-            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
+            background: var(--card-bg);
+            border-color: var(--secondary-bg);
+            box-shadow: var(--shadow-heavy);
+            color: var(--text-primary);
+        }
+
+        .category-btn.active::before {
+            background: linear-gradient(135deg, rgba(44, 83, 100, 0.1), rgba(44, 83, 100, 0.05));
+            opacity: 1;
         }        .show-all-btn {
-            background: linear-gradient(135deg, var(--secondary-bg), var(--primary-bg));
+            background: var(--card-bg);
+            border: 1px solid var(--border-light);
             grid-column: 1 / -1;
             margin-bottom: var(--spacing-md);
             position: relative;
+            color: var(--text-primary);
+            box-shadow: var(--shadow-light);
         }
 
         .show-all-btn:hover {
-            box-shadow: 0 6px 20px rgba(44, 83, 100, 0.5);
+            box-shadow: var(--shadow-heavy);
+            border-color: rgba(44, 83, 100, 0.3);
+        }
+
+        .show-all-btn.active {
+            border-color: var(--secondary-bg);
+            box-shadow: var(--shadow-heavy);
+        }
+
+        .show-all-btn.active::before {
+            background: linear-gradient(135deg, rgba(44, 83, 100, 0.1), rgba(44, 83, 100, 0.05));
+            opacity: 1;
         }
 
         .expand-icon {

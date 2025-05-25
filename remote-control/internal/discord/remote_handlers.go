@@ -845,11 +845,10 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 		})
 		return msgErr
 	}
-	fileSegment.End()
-	// Send the file as an attachment
+	fileSegment.End() // Send the file as an attachment
 	sendSegment := txn.StartSegment("send_file")
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("📺 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.",
+		Content: fmt.Sprintf("📺 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.\nDownload this file and open it in your browser to view the interactive catalog.",
 			currentPlaylist, len(playlist.Channels), len(categories)),
 		Files: []*discordgo.File{
 			{
