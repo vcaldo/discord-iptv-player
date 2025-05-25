@@ -83,10 +83,13 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 					Autocomplete: true,
 				},
 			},
-		},
-		{
+		}, {
 			Name:        models.CatalogCommand,
 			Description: "Generate HTML catalog of current playlist",
+		},
+		{
+			Name:        models.CsvCommand,
+			Description: "Export current playlist to CSV format",
 		},
 	}
 }
