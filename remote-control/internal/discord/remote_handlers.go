@@ -50,6 +50,8 @@ func (b *Bot) handleApplicationCommand(ctx context.Context, s *discordgo.Session
 		return b.handleRestartCommand(ctx, s, i, config, nrApp)
 	case models.CatalogCommand:
 		return b.handleCatalogCommand(ctx, s, i, config, nrApp)
+	case models.CsvCommand:
+		return b.handleCsvCommand(ctx, s, i, config, nrApp)
 	default:
 		// Use followup message since we already acknowledged the interaction
 		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -873,4 +875,133 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	txn.AddAttribute("file_size_bytes", fileSizeBytes)
 	txn.AddAttribute("file_size_kb", fileSizeKB)
 	return nil
+}
+
+func (b *Bot) handleCsvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
+	txn := nrApp.StartTransaction("discord:handle-csv-command")
+	defer txn.End()
+	ctx = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("user_id", i.Member.User.ID)
+	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	// Get the current playlist name
+	currentPlaylist := b.getCurrentPlaylist(config)
+	txn.AddAttribute("playlist_name", currentPlaylist)
+
+	// Get the playlist from Redis
+	getPlaylistSegment := txn.StartSegment("get_playlist")
+	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, currentPlaylist)
+	if err != nil {
+		getPlaylistSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error retrieving playlist: %v", err),
+		})
+		return msgErr
+	}
+	getPlaylistSegment.End()
+
+	if len(playlist.Channels) == 0 {
+		_, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: "No channels found in the current playlist.",
+		})
+		return err
+	}
+
+	// Generate CSV content
+	generateSegment := txn.StartSegment("generate_csv")
+	var csvContent strings.Builder
+
+	// Write CSV header
+	csvContent.WriteString("ID,Name,Category\n")
+
+	// Write channel data (only ID, Name, Category - excluding URL and Logo as specified)
+	for _, channel := range playlist.Channels {
+		// Escape CSV fields properly
+		id := escapeCSVField(channel.ID)
+		name := escapeCSVField(channel.Name)
+		category := escapeCSVField(channel.Category)
+
+		csvContent.WriteString(fmt.Sprintf("%s,%s,%s\n", id, name, category))
+	}
+	generateSegment.End()
+
+	filename := fmt.Sprintf("%s-playlist-%s.csv", currentPlaylist, time.Now().Format("2006-01-02"))
+
+	fileSizeBytes := len(csvContent.String())
+	fileSizeKB := float64(fileSizeBytes) / 1024
+
+	log.Printf("Generated CSV file: %s, Size: %d bytes (%.2f KB), Channels: %d",
+		filename, fileSizeBytes, fileSizeKB, len(playlist.Channels))
+
+	// Create temporary file
+	fileSegment := txn.StartSegment("create_temp_file")
+	tempFile, err := os.CreateTemp("", filename)
+	if err != nil {
+		fileSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error creating CSV file: %v", err),
+		})
+		return msgErr
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	_, err = io.WriteString(tempFile, csvContent.String())
+	if err != nil {
+		fileSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error writing CSV file: %v", err),
+		})
+		return msgErr
+	}
+
+	// Reset file pointer to beginning
+	_, err = tempFile.Seek(0, 0)
+	if err != nil {
+		fileSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error preparing CSV file: %v", err),
+		})
+		return msgErr
+	}
+	fileSegment.End()
+
+	// Send the CSV file
+	sendSegment := txn.StartSegment("send_file")
+	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Content: fmt.Sprintf("📄 Generated CSV export for playlist **%s** with **%d** channels.\nColumns: ID, Name, Category",
+			currentPlaylist, len(playlist.Channels)),
+		Files: []*discordgo.File{
+			{
+				Name:   filename,
+				Reader: tempFile,
+			},
+		},
+	})
+	sendSegment.End()
+	if err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+
+	txn.AddAttribute("channels_count", len(playlist.Channels))
+	txn.AddAttribute("file_size_bytes", fileSizeBytes)
+	txn.AddAttribute("file_size_kb", fileSizeKB)
+	return nil
+}
+
+// escapeCSVField properly escapes a field for CSV format
+func escapeCSVField(field string) string {
+	// If field contains comma, double quote, or newline, wrap in double quotes
+	if strings.Contains(field, ",") || strings.Contains(field, "\"") || strings.Contains(field, "\n") || strings.Contains(field, "\r") {
+		// Escape existing double quotes by doubling them
+		escaped := strings.ReplaceAll(field, "\"", "\"\"")
+		return "\"" + escaped + "\""
+	}
+	return field
 }

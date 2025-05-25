@@ -11,4 +11,5 @@ const (
 	RestartCommand                string = "restart"
 	PlaylistCommand               string = "playlist"
 	CatalogCommand                string = "catalog"
+	CsvCommand                    string = "csv"
 )
