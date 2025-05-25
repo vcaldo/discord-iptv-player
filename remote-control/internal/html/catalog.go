@@ -73,13 +73,11 @@ func (c *CatalogGenerator) buildCSS() string {
             --card-bg: #2a3441;
             --input-bg: #1c1c1c;
             --border-color: #444;
-            --border-light: #3a4a57;
-
-            /* Text Colors */
+            --border-light: #3a4a57;            /* Text Colors */
             --text-primary: #f5f5f5;
             --text-secondary: #bbb;
             --text-muted: #999;
-            --text-accent: #2c5364;
+            --text-accent: #6b8499;
 
             /* Interactive Colors */
             --accent-primary: rgba(44, 83, 100, 0.1);
