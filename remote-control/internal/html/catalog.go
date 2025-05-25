@@ -898,7 +898,6 @@ func (c *CatalogGenerator) buildMainContent(data CatalogData) string {
 		if len(channels) == 0 {
 			continue
 		}
-
 		// Sort channels by name within each category
 		sort.Slice(channels, func(i, j int) bool {
 			return channels[i].Name < channels[j].Name
@@ -910,10 +909,10 @@ func (c *CatalogGenerator) buildMainContent(data CatalogData) string {
 			<div class="page-size-selector">
 				<label>Per page:</label>
 				<select class="page-size-select" onchange="updatePageSize(this.value)">
-					<option value="50">50</option>
+					<option value="25">25</option>
+					<option value="50" selected>50</option>
 					<option value="100">100</option>
-					<option value="200" selected>200</option>
-					<option value="500">500</option>
+					<option value="200">200</option>
 				</select>
 			</div>
 			<div class="pagination-info">
@@ -979,10 +978,9 @@ func (c *CatalogGenerator) buildJavaScript() string {
             currentCategory: 'all',
             searchTerm: '',
             categoriesExpanded: false,
-            searchTimeout: null,
-            pagination: {
+            searchTimeout: null,            pagination: {
                 currentPage: 1,
-                pageSize: 200,
+                pageSize: 50,
                 totalPages: 1,
                 totalChannels: 0,
                 visibleChannels: 0
@@ -1235,7 +1233,11 @@ func (c *CatalogGenerator) buildJavaScript() string {
                     if (shouldShowCategory) {
                         Utils.showElement(section);
                         const channels = this.getChannelsInSection(section);
-                        allChannels = allChannels.concat(channels);
+                        
+                        // Only add to allChannels if we're showing all categories
+                        if (AppState.currentCategory === 'all') {
+                            allChannels = allChannels.concat(channels);
+                        }
 
                         const hasVisibleChannels = this.filterChannelsInSection(section);
 
@@ -1249,11 +1251,11 @@ func (c *CatalogGenerator) buildJavaScript() string {
                     }
                 });
 
-                // Apply pagination to all visible channels
+                // Apply pagination based on current view
                 if (AppState.currentCategory === 'all') {
                     PaginationManager.updatePagination(allChannels);
                 } else {
-                    // For single category, update its pagination
+                    // For single category, get only channels from that category
                     const activeSection = document.querySelector('.category-section[data-category="' + AppState.currentCategory + '"]');
                     if (activeSection) {
                         const channels = this.getChannelsInSection(activeSection);
