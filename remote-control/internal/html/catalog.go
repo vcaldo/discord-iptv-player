@@ -995,18 +995,19 @@ func (c *CatalogGenerator) buildChannelCard(channel models.TvChannel) string {
 }
 
 func (c *CatalogGenerator) buildJavaScript() string {
-	return `    <script>        // Application state        const AppState = {
+	return `    <script>        // Application state
+        const AppState = {
             currentCategory: 'all',
             searchTerm: '',
             categoriesExpanded: false,
             searchTimeout: null,            pagination: {
                 currentPage: 1,
-                pageSize: 100,
+                pageSize: 200,
                 totalPages: 1,
                 totalChannels: 0,
                 visibleChannels: 0
             }
-        };// Enhanced DOM cache with channel data optimization
+        };        // Enhanced DOM cache with channel data optimization
         const DOMCache = {
             searchBox: null,
             clearBtn: null,
