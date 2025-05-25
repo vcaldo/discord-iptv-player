@@ -116,17 +116,23 @@ func (c *CatalogGenerator) buildCSS() string {
             text-align: center;
             font-size: 1rem;
             color: #999;
-        }
-
-        .search-container {
+        }        .search-container {
             margin: 2rem 0;
             text-align: center;
+            position: relative;
+            display: inline-block;
+        }
+
+        .search-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+            max-width: 500px;
         }
 
         .search-box {
             width: 100%;
-            max-width: 500px;
-            padding: 12px 20px;
+            padding: 12px 45px 12px 20px;
             font-size: 1rem;
             border: 2px solid #444;
             background: #1c1c1c;
@@ -138,6 +144,35 @@ func (c *CatalogGenerator) buildCSS() string {
 
         .search-box:focus {
             border-color: #2c5364;
+        }
+
+        .clear-search {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #999;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+            display: none;
+            width: 25px;
+            height: 25px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .clear-search:hover {
+            background: rgba(44, 83, 100, 0.2);
+            color: #f5f5f5;
+        }
+
+        .clear-search.visible {
+            display: flex;
         }
 
         .categories-nav {
@@ -307,6 +342,22 @@ func (c *CatalogGenerator) buildCSS() string {
             transform: translateY(-1px);
         }
 
+        .channel-id.copied {
+            animation: blink 0.6s ease-in-out;
+        }
+
+        @keyframes blink {
+            0%, 100% {
+                background: rgba(44, 83, 100, 0.1);
+                color: #2c5364;
+            }
+            50% {
+                background: rgba(46, 204, 113, 0.3);
+                color: #27ae60;
+                box-shadow: 0 0 10px rgba(46, 204, 113, 0.3);
+            }
+        }
+
         .copy-icon {
             margin-left: 0.5rem;
             font-size: 0.8rem;
@@ -316,26 +367,47 @@ func (c *CatalogGenerator) buildCSS() string {
 
         .channel-id:hover .copy-icon {
             opacity: 1;
-        }
-
-        .copy-feedback {
+        }        .copy-feedback {
             position: absolute;
-            top: -30px;
+            top: -35px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
+            background: rgba(44, 83, 100, 0.95);
+            color: #e0e6ed;
+            padding: 6px 12px;
+            border-radius: 6px;
             font-size: 0.8rem;
+            font-weight: 600;
             white-space: nowrap;
             opacity: 0;
             pointer-events: none;
-            transition: opacity 0.3s ease;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            z-index: 1000;
         }
 
         .copy-feedback.show {
             opacity: 1;
+            transform: translateX(-50%) translateY(-5px);
+            animation: fadeInOut 0.5s ease-in-out;
+        }        @keyframes fadeInOut {
+            0% {
+                opacity: 0;
+                transform: translateX(-50%) translateY(0px);
+            }
+            30% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(-5px);
+            }
+            70% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(-5px);
+            }
+            100% {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-10px);
+            }
         }
 
         .no-logo {
@@ -364,15 +436,17 @@ func (c *CatalogGenerator) buildCSS() string {
             padding: 2rem;
             color: rgba(255, 255, 255, 0.6);
             font-size: 0.9rem;
-        }
-
-        @media (max-width: 768px) {
+        }        @media (max-width: 768px) {
             .container {
                 padding: 0 15px;
             }
 
             h1 {
                 font-size: 2rem;
+            }
+
+            .search-wrapper {
+                max-width: 100%;
             }
 
             .categories-grid {
@@ -424,23 +498,23 @@ func (c *CatalogGenerator) buildNavigation(data CatalogData) string {
             <div class="subtitle">%s</div>
             <div class="stats">%d categories • %d channels • Generated on %s</div>
         </div>
-    </header>
-
-    <div class="container">
+    </header>    <div class="container">
         <div class="search-container">
-            <input type="text" id="searchBox" class="search-box" placeholder="Search channels...">
-        </div>        <nav class="categories-nav collapsed" id="categoriesNav">
-            <div class="categories-grid collapsed" id="categoriesGrid">
-                <button class="category-btn show-all-btn active" onclick="toggleCategoriesView()" id="showAllBtn">
+            <div class="search-wrapper">
+                <input type="text" id="searchBox" class="search-box" placeholder="Search channels...">
+                <button class="clear-search" id="clearSearch" onclick="clearSearch()" title="Clear search">✕</button>
+            </div>
+        </div><nav class="categories-nav collapsed" id="categoriesNav">
+            <div class="categories-grid collapsed" id="categoriesGrid">                <button class="category-btn show-all-btn active" onclick="toggleCategoriesView()" id="showAllBtn">
                     Show All Categories (%d) <span class="expand-icon">▼</span>
                 </button>
 `, html.EscapeString(data.PlaylistName), len(data.Categories), data.TotalChannels, html.EscapeString(data.Date), len(data.Categories)))
 	for _, category := range data.Categories {
 		channelCount := len(data.CategoryChannels[category])
-		nav.WriteString(fmt.Sprintf(`                <button class="category-btn" onclick="showCategory('%s')">
+		nav.WriteString(fmt.Sprintf(`                <button class="category-btn" onclick="toggleCategory('%s')" data-category="%s">
                     %s (%d)
                 </button>
-`, html.EscapeString(category), html.EscapeString(category), channelCount))
+`, html.EscapeString(category), html.EscapeString(category), html.EscapeString(category), channelCount))
 	}
 
 	nav.WriteString(`            </div>
@@ -529,40 +603,69 @@ func (c *CatalogGenerator) buildJavaScript() string {
         let searchTerm = '';
         let categoriesExpanded = false;
 
-        // Copy channel ID to clipboard
+        // Clear search functionality
+        function clearSearch() {
+            const searchBox = document.getElementById('searchBox');
+            const clearBtn = document.getElementById('clearSearch');
+
+            searchBox.value = '';
+            searchTerm = '';
+            clearBtn.classList.remove('visible');
+            updateView();
+            searchBox.focus();
+        }
+
+        // Toggle search clear button visibility
+        function toggleClearButton() {
+            const searchBox = document.getElementById('searchBox');
+            const clearBtn = document.getElementById('clearSearch');
+
+            if (searchBox.value.length > 0) {
+                clearBtn.classList.add('visible');
+            } else {
+                clearBtn.classList.remove('visible');
+            }
+        }// Copy channel ID to clipboard
         async function copyChannelId(channelId) {
+            const event = window.event;
+            const clickedElement = event.target.closest('.channel-id');
+            const feedback = clickedElement.querySelector('.copy-feedback');
+
             try {
                 await navigator.clipboard.writeText(channelId);
-
-                // Show feedback
-                const event = window.event;
-                const clickedElement = event.target.closest('.channel-id');
-                const feedback = clickedElement.querySelector('.copy-feedback');
-
-                feedback.classList.add('show');
-                setTimeout(() => {
-                    feedback.classList.remove('show');
-                }, 2000);
-
+                showCopyFeedback(clickedElement, feedback);
             } catch (err) {
                 // Fallback for older browsers
                 const textArea = document.createElement('textarea');
                 textArea.value = channelId;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
                 document.body.appendChild(textArea);
+                textArea.focus();
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-
-                // Show feedback
-                const event = window.event;
-                const clickedElement = event.target.closest('.channel-id');
-                const feedback = clickedElement.querySelector('.copy-feedback');
-
-                feedback.classList.add('show');
-                setTimeout(() => {
-                    feedback.classList.remove('show');
-                }, 2000);
+                showCopyFeedback(clickedElement, feedback);
             }
+        }
+
+        function showCopyFeedback(element, feedback) {
+            // Add blinking effect to the channel ID
+            element.classList.add('copied');
+
+            // Show the "Copied!" feedback
+            feedback.classList.add('show');
+
+            // Remove the blinking effect after animation completes
+            setTimeout(() => {
+                element.classList.remove('copied');
+            }, 600);
+
+            // Remove the feedback after animation completes
+            setTimeout(() => {
+                feedback.classList.remove('show');
+            }, 2000);
         }function toggleCategoriesView() {
             const grid = document.getElementById('categoriesGrid');
             const nav = document.getElementById('categoriesNav');
@@ -596,9 +699,7 @@ func (c *CatalogGenerator) buildJavaScript() string {
             currentCategory = 'all';
             updateView();
             updateActiveButton('show-all');
-        }
-
-        function showCategory(category) {
+        }        function showCategory(category) {
             currentCategory = category;
             updateView();
             updateActiveButton(category);
@@ -606,6 +707,17 @@ func (c *CatalogGenerator) buildJavaScript() string {
             // If a specific category is selected, collapse the categories grid
             if (categoriesExpanded) {
                 toggleCategoriesView();
+            }
+        }
+
+        // Toggle category selection (double-click to deselect)
+        function toggleCategory(category) {
+            if (currentCategory === category) {
+                // If clicking the same category, deselect it and show all
+                showAllCategories();
+            } else {
+                // Otherwise, select the new category
+                showCategory(category);
             }
         }
 
@@ -667,12 +779,16 @@ func (c *CatalogGenerator) buildJavaScript() string {
 
             // Show/hide no results message
             noResults.style.display = hasVisibleResults ? 'none' : 'block';
-        }
-
-        // Search functionality
+        }        // Search functionality
         document.getElementById('searchBox').addEventListener('input', function(e) {
             searchTerm = e.target.value;
+            toggleClearButton();
             updateView();
+        });
+
+        // Initialize clear button state
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleClearButton();
         });
 
         // Smooth scrolling for category buttons
