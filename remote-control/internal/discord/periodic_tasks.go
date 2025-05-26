@@ -21,8 +21,8 @@ func (b *Bot) startPeriodicTaskManager(ctx context.Context, config *config.Confi
 	tasks := []PeriodicTask{
 		{
 			Name:     "delayed-bot-disconnect",
-			Interval: 5 * time.Second,
-			Handler:  b.checkExpiredBotDelays,
+			Interval: 10 * time.Minute,
+			Handler:  b.isBotAlone,
 		},
 		// Add more periodic tasks here in the future:
 	}

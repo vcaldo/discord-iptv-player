@@ -79,32 +79,6 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 		}
 	})
 
-	b.session.AddHandler(func(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
-		voiceTxn := nrApp.StartTransaction("discord:voice-state-update")
-		defer voiceTxn.End()
-
-		voiceTxn.AddAttribute("event_user_id", v.UserID)
-		voiceTxn.AddAttribute("event_channel_id", v.ChannelID)
-		voiceTxn.AddAttribute("event_type", "voice_state_update")
-
-		voiceCtx := newrelic.NewContext(ctx, voiceTxn)
-
-		// Check if the user is leaving a channel
-		if v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID != "" && v.BeforeUpdate.ChannelID != v.ChannelID && v.ChannelID == "" {
-			log.Printf("user left channel: userid=%s, from_channelid=%s, to_channelid=%s", v.UserID, v.BeforeUpdate.ChannelID, v.ChannelID)
-			if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
-				remoteCommand := &models.RemoteControlCommand{
-					Command: models.StopCommand,
-				}
-
-				err := b.redis.RemoteControlCommand(remoteCommand)
-				if err != nil {
-					log.Printf("error sending disconnect command: %v", err)
-				}
-			}
-		}
-	})
-
 	if err := b.session.Open(); err != nil {
 		txn.NoticeError(err)
 		txn.End()
