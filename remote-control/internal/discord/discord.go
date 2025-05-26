@@ -122,6 +122,9 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 
 	log.Println("bot started successfully, waiting for shutdown signal")
 
+	// Start periodic task manager
+	go b.startPeriodicTaskManager(ctx, config, nrApp)
+
 	<-ctx.Done()
 
 	shutdownTxn := nrApp.StartTransaction("discord:bot-shutdown")
