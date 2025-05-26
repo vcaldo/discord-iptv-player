@@ -67,6 +67,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 
 	ctx = newrelic.NewContext(ctx, txn)
 
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -139,8 +140,10 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-youtube-command")
 	defer txn.End()
-	ctx = newrelic.NewContext(ctx, txn)
 
+	_ = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -201,6 +204,7 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 
 	ctx = newrelic.NewContext(ctx, txn)
 
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -244,8 +248,9 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 	txn := nrApp.StartTransaction("discord:handle-search-command")
 	defer txn.End()
 
-	ctx = newrelic.NewContext(ctx, txn)
+	_ = newrelic.NewContext(ctx, txn)
 
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -388,8 +393,9 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 	txn := nrApp.StartTransaction("discord:handle-categories-command")
 	defer txn.End()
 
-	ctx = newrelic.NewContext(ctx, txn)
+	_ = newrelic.NewContext(ctx, txn)
 
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 	// Get categories directly from Redis
@@ -515,8 +521,9 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 	txn := nrApp.StartTransaction("discord:handle-search-in-category-command")
 	defer txn.End()
 
-	ctx = newrelic.NewContext(ctx, txn)
+	_ = newrelic.NewContext(ctx, txn)
 
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -641,11 +648,13 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 	return err
 }
 
-func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, cfg *config.Config, nrApp *newrelic.Application) error {
+func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-playlist-command")
 	defer txn.End()
-	ctx = newrelic.NewContext(ctx, txn)
 
+	_ = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -665,7 +674,7 @@ func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i
 		return err
 	}
 	// Load playlist configurations to validate the playlist exists
-	playlists, err := m3u.LoadPlaylistsConfig(cfg.PlaylistsConfigPath)
+	playlists, err := m3u.LoadPlaylistsConfig(config.PlaylistsConfigPath)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -695,7 +704,7 @@ func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i
 	}
 
 	// Set the current playlist in Redis
-	err = b.redis.SetCurrentPlaylist(cfg.DiscordGuildID, playlistName)
+	err = b.redis.SetCurrentPlaylist(config.DiscordGuildID, playlistName)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -717,6 +726,7 @@ func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i 
 	defer txn.End()
 	ctx = newrelic.NewContext(ctx, txn)
 
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -757,8 +767,10 @@ func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i 
 func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-catalog-command")
 	defer txn.End()
-	ctx = newrelic.NewContext(ctx, txn)
 
+	_ = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
@@ -880,8 +892,10 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 func (b *Bot) handleCsvCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, config *config.Config, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("discord:handle-csv-command")
 	defer txn.End()
-	ctx = newrelic.NewContext(ctx, txn)
 
+	_ = newrelic.NewContext(ctx, txn)
+
+	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 

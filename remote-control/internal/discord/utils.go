@@ -11,7 +11,7 @@ import (
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
 )
 
-func deregisterCommands(ctx context.Context, s *discordgo.Session) {
+func DeregisterCommands(ctx context.Context, s *discordgo.Session) {
 	commands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {
 		log.Println(err)

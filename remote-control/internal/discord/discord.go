@@ -142,7 +142,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 	txn := nrApp.StartTransaction("discord:handle-autocomplete")
 	defer txn.End()
 
-	ctx = newrelic.NewContext(ctx, txn)
+	_ = newrelic.NewContext(ctx, txn)
 
 	data := i.ApplicationCommandData()
 
