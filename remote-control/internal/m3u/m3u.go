@@ -147,7 +147,6 @@ func parsePlaylist(ctx context.Context, content string, name string) (*models.Pl
 		if line == "" || line == "#EXTM3U" {
 			continue
 		}
-
 		if strings.HasPrefix(line, "#EXTINF:") {
 			// Parse channel info line
 			currentChannel = &models.TvChannel{
@@ -159,17 +158,17 @@ func parsePlaylist(ctx context.Context, content string, name string) (*models.Pl
 
 			// Extract channel info
 			infoLine := line[8:] // Remove #EXTINF:
-			// Split by the first comma to separate duration and metadata
-			parts := strings.SplitN(infoLine, ",", 2)
-			if len(parts) < 2 {
-				continue // Skip invalid lines
+
+			// Find the last comma that's not inside quotes to separate attributes from channel name
+			attrPart, channelName := splitAttributesAndName(infoLine)
+			if channelName == "" {
+				continue
 			}
 
 			// Set name
-			currentChannel.Name = strings.TrimSpace(parts[1])
+			currentChannel.Name = strings.TrimSpace(channelName)
 
 			// Extract attributes from the first part
-			attrPart := parts[0]
 			attributes := extractAttributes(ctx, attrPart)
 
 			// Set logo and category if available
@@ -231,4 +230,38 @@ func extractAttributes(ctx context.Context, s string) map[string]string {
 	}
 
 	return attributes
+}
+
+// splitAttributesAndName splits the EXTINF line into attributes part and channel name
+// It finds the last comma that's not inside quotes to properly separate them
+func splitAttributesAndName(infoLine string) (string, string) {
+	var attrPart, channelName string
+	inQuotes := false
+	quoteChar := byte(0)
+	lastCommaPos := -1
+
+	// Find the last comma that's not inside quotes
+	for i := 0; i < len(infoLine); i++ {
+		char := infoLine[i]
+
+		if !inQuotes && (char == '"' || char == '\'') {
+			inQuotes = true
+			quoteChar = char
+		} else if inQuotes && char == quoteChar {
+			inQuotes = false
+			quoteChar = 0
+		} else if !inQuotes && char == ',' {
+			lastCommaPos = i
+		}
+	}
+
+	if lastCommaPos == -1 {
+		// No comma found outside quotes, invalid format
+		return "", ""
+	}
+
+	attrPart = infoLine[:lastCommaPos]
+	channelName = infoLine[lastCommaPos+1:]
+
+	return attrPart, channelName
 }
