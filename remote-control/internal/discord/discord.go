@@ -79,34 +79,6 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 		}
 	})
 
-	b.session.AddHandler(func(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
-		voiceTxn := nrApp.StartTransaction("discord:voice-state-update")
-		defer voiceTxn.End()
-
-		voiceTxn.AddAttribute("event_user_id", v.UserID)
-		voiceTxn.AddAttribute("event_channel_id", v.ChannelID)
-		voiceTxn.AddAttribute("event_type", "voice_state_update")
-
-		voiceCtx := newrelic.NewContext(ctx, voiceTxn)
-
-		// Check if the voice event is someone leaving a channel
-		if v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID != v.ChannelID {
-			log.Printf("user left channel: userid=%s, channelid=%s", v.UserID, v.ChannelID)
-
-			if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
-				remoteCommand := &models.RemoteControlCommand{
-					Command: models.StopCommand,
-				}
-
-				err := b.redis.RemoteControlCommand(remoteCommand)
-				if err != nil {
-					log.Printf("error sending disconnect command: %v", err)
-				}
-			}
-		}
-
-	})
-
 	if err := b.session.Open(); err != nil {
 		txn.NoticeError(err)
 		txn.End()
@@ -121,6 +93,9 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 	}
 
 	log.Println("bot started successfully, waiting for shutdown signal")
+
+	// Start periodic task manager
+	go b.startPeriodicTaskManager(ctx, config, nrApp)
 
 	<-ctx.Done()
 
@@ -139,7 +114,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 	txn := nrApp.StartTransaction("discord:handle-autocomplete")
 	defer txn.End()
 
-	ctx = newrelic.NewContext(ctx, txn)
+	_ = newrelic.NewContext(ctx, txn)
 
 	data := i.ApplicationCommandData()
 
@@ -330,7 +305,6 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 	return nil
 }
 
-// getCurrentPlaylist returns the current playlist name from Redis, or "default" if not set
 func (b *Bot) getCurrentPlaylist(config *config.Config) string {
 	currentPlaylist, err := b.redis.GetCurrentPlaylist(config.DiscordGuildID)
 	if err != nil || currentPlaylist == "" {
@@ -339,7 +313,6 @@ func (b *Bot) getCurrentPlaylist(config *config.Config) string {
 	return currentPlaylist
 }
 
-// loadPlaylistsConfig loads playlist configurations from the config path
 func (b *Bot) loadPlaylistsConfig(configPath string) (*models.PlaylistsConfig, error) {
 	return m3u.LoadPlaylistsConfig(configPath)
 }

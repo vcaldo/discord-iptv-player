@@ -98,10 +98,10 @@ func (b *Bot) registerCommands(ctx context.Context, nrApp *newrelic.Application)
 	txn := nrApp.StartTransaction("discord:register-all-commands")
 	defer txn.End()
 
-	ctx = newrelic.NewContext(ctx, txn)
+	_ = newrelic.NewContext(ctx, txn)
 
 	// Uncomment the following line to deregister commands
-	// deregisterCommands(ctx, b.session)
+	// DeregisterCommands(ctx, b.session)
 
 	log.Println("registering commands...")
 

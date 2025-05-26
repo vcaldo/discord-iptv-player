@@ -270,9 +270,6 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 	return playlist, err
 }
 
-// GetPlaylistMetadata retrieves only the playlist metadata (name, source, updated, length)
-// without fetching channel data. This is much more efficient when you only need to check
-// playlist age or basic info without needing the full channel list.
 func (c *Client) GetPlaylistMetadata(guildID, playlistName string) (*models.Playlist, error) {
 	var playlist *models.Playlist
 	err := c.instrumentOperation("get-playlist-metadata", func() error {
@@ -688,4 +685,46 @@ func (c *Client) GetCurrentPlaylist(guildID string) (string, error) {
 
 func (c *Client) Close() error {
 	return c.rdb.Close()
+}
+
+// Get retrieves a value by key from Redis
+func (c *Client) Get(key string) (string, error) {
+	var value string
+	err := c.instrumentOperation("get", func() error {
+		var err error
+		value, err = c.rdb.Get(key).Result()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	return value, err
+}
+
+// Set stores a key-value pair in Redis with optional expiration
+func (c *Client) Set(key, value string, expiration time.Duration) error {
+	return c.instrumentOperation("set", func() error {
+		return c.rdb.Set(key, value, expiration).Err()
+	})
+}
+
+// Del deletes one or more keys from Redis
+func (c *Client) Del(keys ...string) error {
+	return c.instrumentOperation("del", func() error {
+		return c.rdb.Del(keys...).Err()
+	})
+}
+
+// Keys finds all keys matching a pattern
+func (c *Client) Keys(pattern string) ([]string, error) {
+	var keys []string
+	err := c.instrumentOperation("keys", func() error {
+		var err error
+		keys, err = c.rdb.Keys(pattern).Result()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	return keys, err
 }
