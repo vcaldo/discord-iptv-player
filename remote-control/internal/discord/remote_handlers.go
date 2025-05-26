@@ -1003,14 +1003,3 @@ func (b *Bot) handleCsvCommand(ctx context.Context, s *discordgo.Session, i *dis
 	txn.AddAttribute("file_size_kb", fileSizeKB)
 	return nil
 }
-
-// // escapeCSVField properly escapes a field for CSV format
-// func escapeCSVField(field string) string {
-// 	// If field contains comma, double quote, or newline, wrap in double quotes
-// 	if strings.Contains(field, ",") || strings.Contains(field, "\"") || strings.Contains(field, "\n") || strings.Contains(field, "\r") {
-// 		// Escape existing double quotes by doubling them
-// 		escaped := strings.ReplaceAll(field, "\"", "\"\"")
-// 		return "\"" + escaped + "\""
-// 	}
-// 	return field
-// }
