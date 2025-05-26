@@ -36,7 +36,7 @@ func main() {
 	} else {
 		log.Println("new relic initialized successfully")
 		// Allow some time for New Relic to initialize
-		time.Sleep(1 * time.Second)
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	redisClient, err := redis.NewClient(ctx, config, nrApp)
