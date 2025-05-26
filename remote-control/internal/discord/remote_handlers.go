@@ -918,12 +918,7 @@ func (b *Bot) handleCsvCommand(ctx context.Context, s *discordgo.Session, i *dis
 
 	// Write channel data (only ID, Name, Category - excluding URL and Logo as specified)
 	for _, channel := range playlist.Channels {
-		// Escape CSV fields properly
-		id := escapeCSVField(channel.ID)
-		name := escapeCSVField(channel.Name)
-		category := escapeCSVField(channel.Category)
-
-		csvContent.WriteString(fmt.Sprintf("%s,%s,%s\n", id, name, category))
+		csvContent.WriteString(fmt.Sprintf("%s,%s,%s\n", channel.ID, channel.Name, channel.Category))
 	}
 	generateSegment.End()
 
@@ -995,13 +990,13 @@ func (b *Bot) handleCsvCommand(ctx context.Context, s *discordgo.Session, i *dis
 	return nil
 }
 
-// escapeCSVField properly escapes a field for CSV format
-func escapeCSVField(field string) string {
-	// If field contains comma, double quote, or newline, wrap in double quotes
-	if strings.Contains(field, ",") || strings.Contains(field, "\"") || strings.Contains(field, "\n") || strings.Contains(field, "\r") {
-		// Escape existing double quotes by doubling them
-		escaped := strings.ReplaceAll(field, "\"", "\"\"")
-		return "\"" + escaped + "\""
-	}
-	return field
-}
+// // escapeCSVField properly escapes a field for CSV format
+// func escapeCSVField(field string) string {
+// 	// If field contains comma, double quote, or newline, wrap in double quotes
+// 	if strings.Contains(field, ",") || strings.Contains(field, "\"") || strings.Contains(field, "\n") || strings.Contains(field, "\r") {
+// 		// Escape existing double quotes by doubling them
+// 		escaped := strings.ReplaceAll(field, "\"", "\"\"")
+// 		return "\"" + escaped + "\""
+// 	}
+// 	return field
+// }

@@ -270,9 +270,6 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 	return playlist, err
 }
 
-// GetPlaylistMetadata retrieves only the playlist metadata (name, source, updated, length)
-// without fetching channel data. This is much more efficient when you only need to check
-// playlist age or basic info without needing the full channel list.
 func (c *Client) GetPlaylistMetadata(guildID, playlistName string) (*models.Playlist, error) {
 	var playlist *models.Playlist
 	err := c.instrumentOperation("get-playlist-metadata", func() error {
