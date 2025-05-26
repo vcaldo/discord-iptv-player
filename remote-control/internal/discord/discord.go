@@ -89,39 +89,9 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 
 		voiceCtx := newrelic.NewContext(ctx, voiceTxn)
 
-		switch {
-		// User moved
-		case v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID != "" && v.ChannelID != "":
-			log.Printf("user moved from channel: userid=%s, from_channelid=%s, to_channelid=%s", v.UserID, v.BeforeUpdate.ChannelID, v.ChannelID)
-
-			if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
-				remoteCommand := &models.RemoteControlCommand{
-					Command: models.StopCommand,
-				}
-
-				err := b.redis.RemoteControlCommand(remoteCommand)
-				if err != nil {
-					log.Printf("error sending disconnect command: %v", err)
-				}
-			}
-		// User joined a channel
-		case v.ChannelID != "":
-			log.Printf("user joined channel: userid=%s, channelid=%s", v.UserID, v.ChannelID)
-
-			if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
-				remoteCommand := &models.RemoteControlCommand{
-					Command: models.StopCommand,
-				}
-
-				err := b.redis.RemoteControlCommand(remoteCommand)
-				if err != nil {
-					log.Printf("error sending disconnect command: %v", err)
-				}
-			}
-		// User left a channel
-		case v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID != v.ChannelID:
-			log.Printf("user left channel: userid=%s, channelid=%s", v.UserID, v.ChannelID)
-
+		// Check if the user is leaving a channel
+		if v.BeforeUpdate != nil && v.BeforeUpdate.ChannelID != "" && v.BeforeUpdate.ChannelID != v.ChannelID && v.ChannelID == "" {
+			log.Printf("user left channel: userid=%s, from_channelid=%s, to_channelid=%s", v.UserID, v.BeforeUpdate.ChannelID, v.ChannelID)
 			if !isAnyoneWatching(voiceCtx, s, v, b.redis, nrApp) {
 				remoteCommand := &models.RemoteControlCommand{
 					Command: models.StopCommand,
