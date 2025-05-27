@@ -9,19 +9,17 @@ import (
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 )
 
-// PeriodicTask represents a task that runs periodically
 type PeriodicTask struct {
 	Name     string
 	Interval time.Duration
 	Handler  func(ctx context.Context, config *config.Config, nrApp *newrelic.Application) error
 }
 
-// startPeriodicTaskManager runs multiple periodic tasks
 func (b *Bot) startPeriodicTaskManager(ctx context.Context, config *config.Config, nrApp *newrelic.Application) {
 	tasks := []PeriodicTask{
 		{
 			Name:     "delayed-bot-disconnect",
-			Interval: 10 * time.Minute,
+			Interval: 5 * time.Minute,
 			Handler:  b.isBotAlone,
 		},
 		// Add more periodic tasks here in the future:
