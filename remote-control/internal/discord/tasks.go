@@ -2,7 +2,6 @@ package discord
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/bwmarrin/discordgo"
@@ -12,57 +11,103 @@ import (
 )
 
 func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newrelic.Application) error {
-	txn := newrelic.FromContext(ctx)
-	if txn == nil && nrApp != nil {
-		txn = nrApp.StartTransaction("discord:is-bot-alone")
-		defer txn.End()
-	}
+	txn := nrApp.StartTransaction("discord:check-bot-alone")
+	defer txn.End()
 
-	botUserID := b.redis.GetID("tv_player_bot_id")
-	if botUserID == "" {
-		return fmt.Errorf("tv player bot ID not found in Redis")
-	}
-
-	guildID := config.DiscordGuildID
-
-	guild, err := b.session.State.Guild(guildID)
+	// Get guild information
+	getGuildSegment := txn.StartSegment("get_guild")
+	guild, err := b.session.State.Guild(config.DiscordGuildID)
 	if err != nil {
-		return fmt.Errorf("error getting guild %s: %w", guildID, err)
+		getGuildSegment.End()
+		txn.NoticeError(err)
+		return err
+	}
+	getGuildSegment.End()
+
+	// Find bot's voice state
+	getBotVoiceStateSegment := txn.StartSegment("get_bot_voice_state")
+	var botVoiceState *discordgo.VoiceState
+	botUserID := b.session.State.User.ID
+
+	for _, vs := range guild.VoiceStates {
+		if vs.UserID == botUserID {
+			botVoiceState = vs
+			break
+		}
+	}
+	getBotVoiceStateSegment.End()
+
+	// If bot is not in any voice channel, nothing to check
+	if botVoiceState == nil || botVoiceState.ChannelID == "" {
+		txn.AddAttribute("bot_in_voice_channel", false)
+		return nil
 	}
 
-	channelMembers := make(map[string][]*discordgo.User)
+	txn.AddAttribute("bot_in_voice_channel", true)
+	txn.AddAttribute("bot_voice_channel_id", botVoiceState.ChannelID)
+
+	// Count human users in the same voice channel
+	checkUsersSegment := txn.StartSegment("check_human_users")
+	humanUserCount := 0
+	totalUsersInChannel := 0
+
 	for _, vs := range guild.VoiceStates {
-		if vs.ChannelID != "" {
-			user, err := b.session.User(vs.UserID)
+		// Skip if user is not in the same voice channel as the bot
+		if vs.ChannelID != botVoiceState.ChannelID {
+			continue
+		}
+
+		totalUsersInChannel++
+
+		// Skip the bot itself
+		if vs.UserID == botUserID {
+			continue
+		}
+
+		// Check if this user is a bot/app
+		member, err := b.session.State.Member(config.DiscordGuildID, vs.UserID)
+		if err != nil {
+			// If we can't get member info, try to fetch it from Discord API
+			member, err = b.session.GuildMember(config.DiscordGuildID, vs.UserID)
 			if err != nil {
-				log.Printf("warning: could not get user info for %s: %v", vs.UserID, err)
+				// If we still can't get member info, skip this user but log the error
+				txn.NoticeError(err)
 				continue
 			}
-			// Only add real users (non-bots and non-system users) to the channel members list
-			if !user.Bot && !user.System {
-				channelMembers[vs.ChannelID] = append(channelMembers[vs.ChannelID], user)
-			}
+		}
+
+		// If the user is not a bot, count them as a human user
+		if member.User != nil && !member.User.Bot {
+			humanUserCount++
 		}
 	}
+	checkUsersSegment.End()
 
-	// Check if there are no real users in channels where the bot is present
-	for _, vs := range guild.VoiceStates {
-		if vs.UserID == botUserID && vs.ChannelID != "" {
-			// Check if there are any real users (non-bots) in this channel
-			realUsers := channelMembers[vs.ChannelID]
-			if len(realUsers) == 0 {
-				log.Printf("TV Service is alone with only bots/system users in channel %s, no real users watching...", vs.ChannelID)
-				remoteCommand := &models.RemoteControlCommand{
-					Command: models.StopCommand,
-				}
+	txn.AddAttribute("total_users_in_channel", totalUsersInChannel)
+	txn.AddAttribute("human_users_in_channel", humanUserCount)
+	txn.AddAttribute("bot_is_alone", humanUserCount == 0)
 
-				err := b.redis.RemoteControlCommand(remoteCommand)
-				if err != nil {
-					log.Printf("error sending disconnect command: %v", err)
-				}
-				break // Only need to send the command once
-			}
+	// If there are no human users in the voice channel (bot is alone)
+	if humanUserCount == 0 {
+		log.Printf("Bot is alone in voice channel %s, considering disconnect", botVoiceState.ChannelID)
+
+		// Send stop command to trigger bot disconnect
+		stopSegment := txn.StartSegment("send_stop_command")
+		remoteControlCommand := &models.RemoteControlCommand{
+			Command: models.StopCommand,
 		}
+
+		err = b.redis.RemoteControlCommand(remoteControlCommand)
+		if err != nil {
+			stopSegment.End()
+			txn.NoticeError(err)
+			return err
+		}
+		stopSegment.End()
+
+		log.Printf("Stop command sent due to bot being alone in voice channel")
+	} else {
+		log.Printf("Bot is not alone in voice channel %s, %d human users present", botVoiceState.ChannelID, humanUserCount)
 	}
 
 	return nil
