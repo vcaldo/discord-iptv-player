@@ -11,13 +11,7 @@ import (
 )
 
 func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newrelic.Application) error {
-	log.Printf("Running periodic task: checking if bot is alone in voice channel")
-
-	// Check if bot session is still valid
-	if b.session == nil || b.session.State == nil || b.session.State.User == nil {
-		log.Printf("Bot session is invalid, skipping alone check")
-		return nil
-	}
+	log.Printf("Running periodic task: checking if TV player bot is alone in voice channel")
 
 	txn := nrApp.StartTransaction("discord:check-bot-alone")
 	defer txn.End()
@@ -32,28 +26,39 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 	}
 	getGuildSegment.End()
 
-	// Find bot's voice state
-	getBotVoiceStateSegment := txn.StartSegment("get_bot_voice_state")
-	var botVoiceState *discordgo.VoiceState
-	botUserID := b.session.State.User.ID
+	// Find TV player bot's voice state (not this remote control bot)
+	getBotVoiceStateSegment := txn.StartSegment("get_tv_player_bot_voice_state")
 
+	// Get TV player bot ID from Redis
+	tvPlayerBotID := b.redis.GetID("tv_player_bot_id")
+	if tvPlayerBotID == "" {
+		getBotVoiceStateSegment.End()
+		log.Printf("TV player bot ID not found in Redis, skipping alone check")
+		txn.AddAttribute("tv_player_bot_id_found", false)
+		return nil
+	}
+
+	log.Printf("Checking voice state for TV player bot ID: %s", tvPlayerBotID)
+	txn.AddAttribute("tv_player_bot_id", tvPlayerBotID)
+
+	var botVoiceState *discordgo.VoiceState
 	for _, vs := range guild.VoiceStates {
-		if vs.UserID == botUserID {
+		if vs.UserID == tvPlayerBotID {
 			botVoiceState = vs
 			break
 		}
 	}
 	getBotVoiceStateSegment.End()
 
-	// If bot is not in any voice channel, nothing to check
+	// If TV player bot is not in any voice channel, nothing to check
 	if botVoiceState == nil || botVoiceState.ChannelID == "" {
-		log.Printf("Bot is not in any voice channel, skipping alone check")
-		txn.AddAttribute("bot_in_voice_channel", false)
+		log.Printf("TV player bot is not in any voice channel, skipping alone check")
+		txn.AddAttribute("tv_player_bot_in_voice_channel", false)
 		return nil
 	}
 
-	txn.AddAttribute("bot_in_voice_channel", true)
-	txn.AddAttribute("bot_voice_channel_id", botVoiceState.ChannelID)
+	txn.AddAttribute("tv_player_bot_in_voice_channel", true)
+	txn.AddAttribute("tv_player_bot_voice_channel_id", botVoiceState.ChannelID)
 
 	// Count human users in the same voice channel
 	checkUsersSegment := txn.StartSegment("check_human_users")
@@ -68,8 +73,8 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 
 		totalUsersInChannel++
 
-		// Skip the bot itself
-		if vs.UserID == botUserID {
+		// Skip the TV player bot itself
+		if vs.UserID == tvPlayerBotID {
 			continue
 		}
 
@@ -96,9 +101,9 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 	txn.AddAttribute("human_users_in_channel", humanUserCount)
 	txn.AddAttribute("bot_is_alone", humanUserCount == 0)
 
-	// If there are no human users in the voice channel (bot is alone)
+	// If there are no human users in the voice channel (TV player bot is alone)
 	if humanUserCount == 0 {
-		log.Printf("Bot is alone in voice channel %s, considering disconnect", botVoiceState.ChannelID)
+		log.Printf("TV player bot is alone in voice channel %s, considering disconnect", botVoiceState.ChannelID)
 
 		// Send stop command to trigger bot disconnect
 		stopSegment := txn.StartSegment("send_stop_command")
@@ -114,9 +119,9 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 		}
 		stopSegment.End()
 
-		log.Printf("Stop command sent due to bot being alone in voice channel")
+		log.Printf("Stop command sent due to TV player bot being alone in voice channel")
 	} else {
-		log.Printf("Bot is not alone in voice channel %s, %d human users present", botVoiceState.ChannelID, humanUserCount)
+		log.Printf("TV player bot is not alone in voice channel %s, %d human users present", botVoiceState.ChannelID, humanUserCount)
 	}
 
 	return nil
