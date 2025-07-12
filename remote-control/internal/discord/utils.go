@@ -8,7 +8,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"github.com/newrelic/go-agent/v3/newrelic"
-	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 )
 
 func DeregisterCommands(ctx context.Context, s *discordgo.Session) {
@@ -63,15 +62,4 @@ func getUserVoiceState(ctx context.Context, s *discordgo.Session, i *discordgo.I
 	}
 
 	return userVoiceState, nil
-}
-
-// checkUserBlacklist checks if a user is blacklisted and sends an appropriate response
-func checkUserBlacklist(userID string, config *config.Config, s *discordgo.Session, i *discordgo.InteractionCreate) bool {
-	if config.IsUserBlacklisted(userID) {
-		s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: "❌ You are not authorized to use this command.",
-		})
-		return true
-	}
-	return false
 }

@@ -82,10 +82,6 @@ The Remote Control component uses environment variables for configuration. For y
    DISCORD_GUILD_ID=your_discord_guild_id
    DISCORD_VIDEO_CHANNEL_ID=your_discord_video_channel_id
 
-   # User Access Control
-   # Comma-separated list of Discord user IDs that are blacklisted from using certain commands
-   BLACKLISTED_USERS=123456789012345678,987654321098765432
-
    # Redis Configuration
    REDIS_ADDRESS=localhost:6379
    REDIS_PASSWORD=
@@ -109,7 +105,6 @@ The Remote Control component uses environment variables for configuration. For y
 | DISCORD_BOT_TOKEN | Your Discord bot token | Yes | - |
 | DISCORD_GUILD_ID | ID of the Discord server | Yes | - |
 | DISCORD_VIDEO_CHANNEL_ID | ID of the Discord voice channel | Yes | - |
-| BLACKLISTED_USERS | Comma-separated list of Discord user IDs to blacklist from using restricted commands (tv, yt, stop, restart, playlist) | No | - |
 | REDIS_ADDRESS | Redis server address | No | localhost:6379 |
 | REDIS_PASSWORD | Redis server password | No | - |
 | REDIS_DB | Redis database number | No | 0 |
