@@ -11,6 +11,14 @@ import (
 )
 
 func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newrelic.Application) error {
+	log.Printf("Running periodic task: checking if bot is alone in voice channel")
+	
+	// Check if bot session is still valid
+	if b.session == nil || b.session.State == nil || b.session.State.User == nil {
+		log.Printf("Bot session is invalid, skipping alone check")
+		return nil
+	}
+	
 	txn := nrApp.StartTransaction("discord:check-bot-alone")
 	defer txn.End()
 
@@ -39,6 +47,7 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 
 	// If bot is not in any voice channel, nothing to check
 	if botVoiceState == nil || botVoiceState.ChannelID == "" {
+		log.Printf("Bot is not in any voice channel, skipping alone check")
 		txn.AddAttribute("bot_in_voice_channel", false)
 		return nil
 	}
