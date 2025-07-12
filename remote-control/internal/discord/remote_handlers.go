@@ -71,6 +71,12 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
+	// Check if user is blacklisted
+	if checkUserBlacklist(i.Member.User.ID, config, s, i) {
+		txn.AddAttribute("blacklisted_user", true)
+		return nil // User is blacklisted, already handled by checkUserBlacklist
+	}
+
 	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
 	if err != nil {
 		txn.NoticeError(err)
@@ -147,6 +153,12 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
+	// Check if user is blacklisted
+	if checkUserBlacklist(i.Member.User.ID, config, s, i) {
+		txn.AddAttribute("blacklisted_user", true)
+		return nil // User is blacklisted, already handled by checkUserBlacklist
+	}
+
 	options := i.ApplicationCommandData().Options
 	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
 	for _, opt := range options {
@@ -207,6 +219,12 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	// Check if user is blacklisted
+	if checkUserBlacklist(i.Member.User.ID, config, s, i) {
+		txn.AddAttribute("blacklisted_user", true)
+		return nil // User is blacklisted, already handled by checkUserBlacklist
+	}
 
 	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
 	if err != nil {
@@ -658,6 +676,12 @@ func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
 
+	// Check if user is blacklisted
+	if checkUserBlacklist(i.Member.User.ID, config, s, i) {
+		txn.AddAttribute("blacklisted_user", true)
+		return nil // User is blacklisted, already handled by checkUserBlacklist
+	}
+
 	options := i.ApplicationCommandData().Options
 	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
 	for _, opt := range options {
@@ -729,6 +753,12 @@ func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i 
 	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
+
+	// Check if user is blacklisted
+	if checkUserBlacklist(i.Member.User.ID, config, s, i) {
+		txn.AddAttribute("blacklisted_user", true)
+		return nil // User is blacklisted, already handled by checkUserBlacklist
+	}
 
 	userVoiceState, err := getUserVoiceState(ctx, s, i, nrApp)
 	if err != nil {
