@@ -10,10 +10,10 @@ import (
 )
 
 type PeriodicTask struct {
-	Name            string
-	Interval        time.Duration
-	InitialDelay    time.Duration // Optional initial delay before first execution
-	Handler         func(ctx context.Context, config *config.Config, nrApp *newrelic.Application) error
+	Name         string
+	Interval     time.Duration
+	InitialDelay time.Duration // Optional initial delay before first execution
+	Handler      func(ctx context.Context, config *config.Config, nrApp *newrelic.Application) error
 }
 
 func (b *Bot) startPeriodicTaskManager(ctx context.Context, config *config.Config, nrApp *newrelic.Application) {
@@ -73,7 +73,7 @@ func (b *Bot) runPeriodicTask(ctx context.Context, task PeriodicTask, config *co
 				log.Printf("context cancelled, stopping periodic task: %s", task.Name)
 				return
 			}
-			
+
 			log.Printf("executing periodic task: %s", task.Name)
 			if err := task.Handler(ctx, config, nrApp); err != nil {
 				log.Printf("error in periodic task %s: %v", task.Name, err)
