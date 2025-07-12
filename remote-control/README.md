@@ -140,6 +140,37 @@ docker run -p 6379:6379 --env-file .env discord-iptv-remote-control
 | `/stop` | Stop the currently playing channel | `/stop` |
 | `/search [name]` | Search for channels containing the given text | `/search news` |
 
+### User Access Control
+
+The bot supports blacklisting specific users from using certain commands. This is useful for restricting access to control commands in larger servers.
+
+#### Blacklisted Commands
+
+The following commands can be restricted through the blacklist:
+- `/tv` - Play TV channels
+- `/yt` - Play YouTube videos  
+- `/stop` - Stop playback
+- `/restart` - Restart the bot
+- `/playlist` - Switch playlists
+
+Commands like `/search`, `/categories`, `/list`, `/catalog`, and `/csv` are not restricted as they are read-only operations.
+
+#### Configuration
+
+To blacklist users, add their Discord user IDs to the `BLACKLISTED_USERS` environment variable as a comma-separated list:
+
+```env
+BLACKLISTED_USERS=123456789012345678,987654321098765432
+```
+
+#### Finding Discord User IDs
+
+1. Enable Developer Mode in Discord (User Settings > App Settings > Advanced > Developer Mode)
+2. Right-click on a user's name or profile picture
+3. Select "Copy User ID"
+
+When a blacklisted user attempts to use a restricted command, they will receive a message: "❌ You are not authorized to use this command."
+
 ## Discord Bot Setup
 
 1. Create a new Discord application at the [Discord Developer Portal](https://discord.com/developers/applications)
