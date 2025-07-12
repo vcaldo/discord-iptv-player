@@ -38,21 +38,29 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 				log.Printf("warning: could not get user info for %s: %v", vs.UserID, err)
 				continue
 			}
-			channelMembers[vs.ChannelID] = append(channelMembers[vs.ChannelID], user)
+			// Only add non-bot users to the channel members list
+			if !user.Bot {
+				channelMembers[vs.ChannelID] = append(channelMembers[vs.ChannelID], user)
+			}
 		}
 	}
 
-	// Check if bot is alone in any voice channel
-	for channelID, members := range channelMembers {
-		if len(members) == 1 && members[0].ID == botUserID {
-			log.Printf("TV Service is alone in channel %s, no one is watching...", channelID)
-			remoteCommand := &models.RemoteControlCommand{
-				Command: models.StopCommand,
-			}
+	// Check if there are no real users in channels where the bot is present
+	for _, vs := range guild.VoiceStates {
+		if vs.UserID == botUserID && vs.ChannelID != "" {
+			// Check if there are any real users (non-bots) in this channel
+			realUsers := channelMembers[vs.ChannelID]
+			if len(realUsers) == 0 {
+				log.Printf("TV Service is alone with only bots in channel %s, no real users watching...", vs.ChannelID)
+				remoteCommand := &models.RemoteControlCommand{
+					Command: models.StopCommand,
+				}
 
-			err := b.redis.RemoteControlCommand(remoteCommand)
-			if err != nil {
-				log.Printf("error sending disconnect command: %v", err)
+				err := b.redis.RemoteControlCommand(remoteCommand)
+				if err != nil {
+					log.Printf("error sending disconnect command: %v", err)
+				}
+				break // Only need to send the command once
 			}
 		}
 	}
