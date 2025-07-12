@@ -38,8 +38,8 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 				log.Printf("warning: could not get user info for %s: %v", vs.UserID, err)
 				continue
 			}
-			// Only add non-bot users to the channel members list
-			if !user.Bot {
+			// Only add real users (non-bots and non-system users) to the channel members list
+			if !user.Bot && !user.System {
 				channelMembers[vs.ChannelID] = append(channelMembers[vs.ChannelID], user)
 			}
 		}
@@ -51,7 +51,7 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 			// Check if there are any real users (non-bots) in this channel
 			realUsers := channelMembers[vs.ChannelID]
 			if len(realUsers) == 0 {
-				log.Printf("TV Service is alone with only bots in channel %s, no real users watching...", vs.ChannelID)
+				log.Printf("TV Service is alone with only bots/system users in channel %s, no real users watching...", vs.ChannelID)
 				remoteCommand := &models.RemoteControlCommand{
 					Command: models.StopCommand,
 				}
