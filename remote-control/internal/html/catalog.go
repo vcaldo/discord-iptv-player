@@ -1888,10 +1888,18 @@ func (c *CatalogGenerator) buildEmbeddedJSONScript(jsonData string) string {
 
 func (c *CatalogGenerator) buildJavaScriptForEmbeddedJSON() string {
 	return `    <script>
-        // Load data from embedded JSON
+        // Load data from embedded JSON with compact structure
         let catalogData;
         try {
-            catalogData = JSON.parse(document.getElementById('embedded-channel-data').textContent);
+            const rawData = JSON.parse(document.getElementById('embedded-channel-data').textContent);
+            // Transform compact JSON structure back to readable format
+            catalogData = {
+                playlistName: rawData.p || 'Unknown',
+                date: rawData.d || new Date().toDateString(),
+                categories: rawData.c || [],
+                categoryChannels: rawData.cc || {},
+                totalChannels: rawData.t || 0
+            };
         } catch (e) {
             console.error('Failed to parse embedded JSON data:', e);
             catalogData = {
@@ -1999,8 +2007,8 @@ func (c *CatalogGenerator) buildJavaScriptForEmbeddedJSON() string {
                     const channels = catalogData.categoryChannels[category] || [];
                     if (channels.length === 0) return;
 
-                    // Sort channels by name
-                    channels.sort((a, b) => a.name.localeCompare(b.name));
+                    // Sort channels by name (using compact structure: n = name)
+                    channels.sort((a, b) => a.n.localeCompare(b.n));
 
                     const section = document.createElement('section');
                     section.className = 'category-section';
@@ -2027,10 +2035,11 @@ func (c *CatalogGenerator) buildJavaScriptForEmbeddedJSON() string {
             createChannelCard(channel) {
                 const card = document.createElement('div');
                 card.className = 'c';
-                card.setAttribute('data-n', channel.name.toLowerCase());
-                card.setAttribute('data-i', channel.id);
-                if (channel.logo) {
-                    card.setAttribute('data-logo', channel.logo);
+                // Use compact JSON structure (i = id, n = name, l = logo)
+                card.setAttribute('data-n', channel.n.toLowerCase());
+                card.setAttribute('data-i', channel.i);
+                if (channel.l) {
+                    card.setAttribute('data-logo', channel.l);
                 }
                 return card;
             },

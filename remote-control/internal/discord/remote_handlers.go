@@ -3,6 +3,7 @@ package discord
 import (
 	"archive/zip"
 	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -854,16 +855,34 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	}
 	sort.Strings(categories)
 
-	// Create JSON data structure
-	catalogData := map[string]interface{}{
-		"playlistName":     playlist.Name,
-		"date":             time.Now().Format("January 2, 2006"),
-		"categories":       categories,
-		"categoryChannels": categoryChannels,
-		"totalChannels":    len(playlist.Channels),
+	// Create compact JSON data structure (minimize field names and remove unnecessary data)
+	compactCategoryChannels := make(map[string][]map[string]interface{})
+	for category, channels := range categoryChannels {
+		compactChannels := make([]map[string]interface{}, len(channels))
+		for i, channel := range channels {
+			// Use single-letter keys to minimize JSON size
+			compactChannel := map[string]interface{}{
+				"i": channel.ID,
+				"n": channel.Name,
+			}
+			// Only include logo if it exists to save space
+			if channel.Logo != "" {
+				compactChannel["l"] = channel.Logo
+			}
+			compactChannels[i] = compactChannel
+		}
+		compactCategoryChannels[category] = compactChannels
 	}
 
-	// Convert to JSON
+	catalogData := map[string]interface{}{
+		"p":  playlist.Name,                        // playlistName -> p
+		"d":  time.Now().Format("January 2, 2006"), // date -> d
+		"c":  categories,                           // categories -> c
+		"cc": compactCategoryChannels,              // categoryChannels -> cc
+		"t":  len(playlist.Channels),               // totalChannels -> t
+	}
+
+	// Convert to JSON with compact encoding (no indentation/whitespace)
 	jsonData, err := json.Marshal(catalogData)
 	if err != nil {
 		generateSegment.End()
@@ -886,13 +905,28 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	log.Printf("Generated catalog HTML file: %s, Size: %d bytes (%.2f KB), Channels: %d, Categories: %d",
 		filename, fileSizeBytes, fileSizeKB, len(playlist.Channels), len(categories))
 
-	// Create ZIP file in memory
+	// Create ZIP file in memory with maximum compression
 	zipSegment := txn.StartSegment("create_zip_file")
 	var zipBuffer bytes.Buffer
 	zipWriter := zip.NewWriter(&zipBuffer)
 
-	// Add HTML file to ZIP
-	htmlFile, err := zipWriter.Create(filename)
+	// Set the compressor to use maximum compression level
+	zipWriter.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) {
+		return flate.NewWriter(out, flate.BestCompression)
+	})
+
+	// Create file header with maximum compression
+	header := &zip.FileHeader{
+		Name:   filename,
+		Method: zip.Deflate,
+	}
+	header.SetMode(0644)
+
+	// Minimize metadata for smaller size
+	header.Extra = []byte{}
+	header.Comment = ""
+
+	htmlFile, err := zipWriter.CreateHeader(header)
 	if err != nil {
 		zipWriter.Close()
 		zipSegment.End()
@@ -903,6 +937,7 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 		return msgErr
 	}
 
+	// Write HTML content with aggressive compression
 	_, err = htmlFile.Write([]byte(htmlContent))
 	if err != nil {
 		zipWriter.Close()
@@ -968,7 +1003,7 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 
 	sendSegment := txn.StartSegment("send_file")
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("📒 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.\n📦 The catalog is packaged as a ZIP file containing a single HTML file. Extract and open the HTML file in your browser to view the interactive catalog with improved loading performance.",
+		Content: fmt.Sprintf("📒 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.",
 			currentPlaylist, len(playlist.Channels), len(categories)),
 		Files: []*discordgo.File{
 			{
