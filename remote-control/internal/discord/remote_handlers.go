@@ -1,7 +1,11 @@
 package discord
 
 import (
+	"archive/zip"
+	"bytes"
+	"compress/flate"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -827,7 +831,7 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 		})
 		return err
 	}
-	// Generate HTML catalog
+	// Generate HTML catalog with embedded JSON
 	generateSegment := txn.StartSegment("generate_html")
 	generator := html.NewCatalogGenerator()
 
@@ -851,18 +855,114 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	}
 	sort.Strings(categories)
 
-	htmlContent := generator.GenerateHTML(playlist, categories, categoryChannels)
+	// Create compact JSON data structure (minimize field names and remove unnecessary data)
+	compactCategoryChannels := make(map[string][]map[string]interface{})
+	for category, channels := range categoryChannels {
+		compactChannels := make([]map[string]interface{}, len(channels))
+		for i, channel := range channels {
+			// Use single-letter keys to minimize JSON size
+			compactChannel := map[string]interface{}{
+				"i": channel.ID,
+				"n": channel.Name,
+			}
+			// Only include logo if it exists to save space
+			if channel.Logo != "" {
+				compactChannel["l"] = channel.Logo
+			}
+			compactChannels[i] = compactChannel
+		}
+		compactCategoryChannels[category] = compactChannels
+	}
+
+	catalogData := map[string]interface{}{
+		"p":  playlist.Name,                        // playlistName -> p
+		"d":  time.Now().Format("January 2, 2006"), // date -> d
+		"c":  categories,                           // categories -> c
+		"cc": compactCategoryChannels,              // categoryChannels -> cc
+		"t":  len(playlist.Channels),               // totalChannels -> t
+	}
+
+	// Convert to JSON with compact encoding (no indentation/whitespace)
+	jsonData, err := json.Marshal(catalogData)
+	if err != nil {
+		generateSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error generating catalog JSON: %v", err),
+		})
+		return msgErr
+	}
+
+	// Generate HTML with embedded JSON
+	htmlContent := generator.GenerateHTMLWithEmbeddedJSON(string(jsonData))
 	generateSegment.End()
 
 	filename := fmt.Sprintf("%s-catalog-%s.html", currentPlaylist, time.Now().Format("2006-01-02"))
+	zipFilename := fmt.Sprintf("%s-catalog-%s.zip", currentPlaylist, time.Now().Format("2006-01-02"))
 
 	fileSizeBytes := len(htmlContent)
 	fileSizeKB := float64(fileSizeBytes) / 1024
 	log.Printf("Generated catalog HTML file: %s, Size: %d bytes (%.2f KB), Channels: %d, Categories: %d",
 		filename, fileSizeBytes, fileSizeKB, len(playlist.Channels), len(categories))
 
+	// Create ZIP file in memory with maximum compression
+	zipSegment := txn.StartSegment("create_zip_file")
+	var zipBuffer bytes.Buffer
+	zipWriter := zip.NewWriter(&zipBuffer)
+
+	// Set the compressor to use maximum compression level
+	zipWriter.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) {
+		return flate.NewWriter(out, flate.BestCompression)
+	})
+
+	// Create file header with maximum compression
+	header := &zip.FileHeader{
+		Name:   filename,
+		Method: zip.Deflate,
+	}
+	header.SetMode(0644)
+
+	// Minimize metadata for smaller size
+	header.Extra = []byte{}
+	header.Comment = ""
+
+	htmlFile, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		zipWriter.Close()
+		zipSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error creating ZIP file: %v", err),
+		})
+		return msgErr
+	}
+
+	// Write HTML content with aggressive compression
+	_, err = htmlFile.Write([]byte(htmlContent))
+	if err != nil {
+		zipWriter.Close()
+		zipSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error writing HTML to ZIP: %v", err),
+		})
+		return msgErr
+	}
+
+	err = zipWriter.Close()
+	if err != nil {
+		zipSegment.End()
+		txn.NoticeError(err)
+		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("Error finalizing ZIP file: %v", err),
+		})
+		return msgErr
+	}
+	zipSegment.End()
+
+	// Create temporary file for ZIP
 	fileSegment := txn.StartSegment("create_temp_file")
-	tempFile, err := os.CreateTemp("", filename)
+	tempFile, err := os.CreateTemp("", zipFilename)
 	if err != nil {
 		fileSegment.End()
 		txn.NoticeError(err)
@@ -874,12 +974,12 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	_, err = io.WriteString(tempFile, htmlContent)
+	_, err = tempFile.Write(zipBuffer.Bytes())
 	if err != nil {
 		fileSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error writing catalog file: %v", err),
+			Content: fmt.Sprintf("Error writing ZIP file: %v", err),
 		})
 		return msgErr
 	}
@@ -890,18 +990,24 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 		fileSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("Error preparing catalog file: %v", err),
+			Content: fmt.Sprintf("Error preparing ZIP file: %v", err),
 		})
 		return msgErr
 	}
 	fileSegment.End()
+
+	zipSizeBytes := zipBuffer.Len()
+	zipSizeKB := float64(zipSizeBytes) / 1024
+	log.Printf("Generated catalog ZIP file: %s, HTML Size: %d bytes (%.2f KB), ZIP Size: %d bytes (%.2f KB), Channels: %d, Categories: %d",
+		zipFilename, fileSizeBytes, fileSizeKB, zipSizeBytes, zipSizeKB, len(playlist.Channels), len(categories))
+
 	sendSegment := txn.StartSegment("send_file")
 	_, err = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-		Content: fmt.Sprintf("📒 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.\nDownload this file and open it in your browser to view the interactive catalog.",
+		Content: fmt.Sprintf("📒 Generated catalog for playlist **%s** with **%d** channels organized by **%d** categories.",
 			currentPlaylist, len(playlist.Channels), len(categories)),
 		Files: []*discordgo.File{
 			{
-				Name:   filename,
+				Name:   zipFilename,
 				Reader: tempFile,
 			},
 		},
@@ -914,8 +1020,10 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 
 	txn.AddAttribute("channels_count", len(playlist.Channels))
 	txn.AddAttribute("categories_count", len(categories))
-	txn.AddAttribute("file_size_bytes", fileSizeBytes)
-	txn.AddAttribute("file_size_kb", fileSizeKB)
+	txn.AddAttribute("html_size_bytes", fileSizeBytes)
+	txn.AddAttribute("html_size_kb", fileSizeKB)
+	txn.AddAttribute("zip_size_bytes", zipSizeBytes)
+	txn.AddAttribute("zip_size_kb", zipSizeKB)
 	return nil
 }
 

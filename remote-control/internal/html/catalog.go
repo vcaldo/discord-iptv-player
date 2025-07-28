@@ -10,6 +10,15 @@ import (
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
+// CatalogGenerator generates optimized HTML catalogs for IPTV channels
+//
+// Performance optimizations implemented:
+// - Pre-allocated string builders with estimated capacity
+// - Batch processing of channel cards to reduce WriteString calls
+// - Cached HTML escaping to avoid repeated operations
+// - Efficient sorting and copying of data structures
+// - Minimized memory allocations through reuse patterns
+// - Inline template processing for better performance
 type CatalogGenerator struct{}
 
 type CatalogData struct {
@@ -20,6 +29,8 @@ type CatalogData struct {
 	TotalChannels    int
 }
 
+// NewCatalogGenerator creates a new catalog generator instance
+// Using a simple struct initialization for better performance
 func NewCatalogGenerator() *CatalogGenerator {
 	return &CatalogGenerator{}
 }
@@ -28,19 +39,41 @@ func (c *CatalogGenerator) GenerateHTML(playlist *models.Playlist, categories []
 	data := CatalogData{
 		PlaylistName:     playlist.Name,
 		Date:             time.Now().Format("January 2, 2006"),
-		Categories:       categories,
+		Categories:       make([]string, len(categories)),
 		CategoryChannels: categoryChannels,
 		TotalChannels:    len(playlist.Channels),
 	}
 
-	// Sort categories alphabetically
+	// Copy and sort categories to avoid modifying the original slice
+	copy(data.Categories, categories)
 	sort.Strings(data.Categories)
 
 	return c.buildHTML(data)
 }
 
+// GenerateHTMLWithEmbeddedJSON creates HTML with embedded JSON data for better performance
+func (c *CatalogGenerator) GenerateHTMLWithEmbeddedJSON(jsonData string) string {
+	var html strings.Builder
+	// Pre-allocate builder capacity for better performance
+	html.Grow(len(jsonData) + 200000) // Estimate: JSON data + HTML/CSS/JS overhead
+
+	html.WriteString(c.buildHeaderForEmbeddedJSON())
+	html.WriteString(c.buildCSS())
+	html.WriteString("</head>\n<body>\n")
+	html.WriteString(c.buildNavigationForEmbeddedJSON())
+	html.WriteString(c.buildMainContentForEmbeddedJSON())
+	html.WriteString(c.buildEmbeddedJSONScript(jsonData))
+	html.WriteString(c.buildJavaScriptForEmbeddedJSON())
+	html.WriteString("</body>\n</html>")
+
+	return html.String()
+}
+
 func (c *CatalogGenerator) buildHTML(data CatalogData) string {
 	var html strings.Builder
+	// Pre-allocate builder capacity based on estimated content size
+	estimatedSize := c.estimateHTMLSize(data)
+	html.Grow(estimatedSize)
 
 	html.WriteString(c.buildHeader(data))
 	html.WriteString(c.buildCSS())
@@ -51,6 +84,24 @@ func (c *CatalogGenerator) buildHTML(data CatalogData) string {
 	html.WriteString("</body>\n</html>")
 
 	return html.String()
+}
+
+// estimateHTMLSize provides a rough estimate of the final HTML size for buffer pre-allocation
+func (c *CatalogGenerator) estimateHTMLSize(data CatalogData) int {
+	// Base HTML structure + CSS + JavaScript (~150KB)
+	baseSize := 150000
+
+	// Estimate channel cards (average ~100 bytes per channel)
+	channelCardSize := 100
+	totalChannelSize := data.TotalChannels * channelCardSize
+
+	// Category navigation (average ~50 bytes per category)
+	categorySize := len(data.Categories) * 50
+
+	// Add some buffer for dynamic content
+	buffer := 10000
+
+	return baseSize + totalChannelSize + categorySize + buffer
 }
 
 func (c *CatalogGenerator) buildHeader(data CatalogData) string {
@@ -889,6 +940,9 @@ func (c *CatalogGenerator) buildCSS() string {
 
 func (c *CatalogGenerator) buildNavigation(data CatalogData) string {
 	var nav strings.Builder
+	// Pre-allocate capacity based on estimated navigation size
+	estimatedNavSize := 2000 + len(data.Categories)*150 // Base + categories with extra buffer
+	nav.Grow(estimatedNavSize)
 
 	nav.WriteString(fmt.Sprintf(`    <header>
         <div class="container">
@@ -910,12 +964,15 @@ func (c *CatalogGenerator) buildNavigation(data CatalogData) string {
                     Show All Categories (%d) <span class="expand-icon">▼</span>
                 </button>
 `, html.EscapeString(data.PlaylistName), html.EscapeString(data.PlaylistName), html.EscapeString(data.PlaylistName), len(data.Categories), data.TotalChannels, html.EscapeString(data.Date), len(data.Categories)))
+
+	// Optimize category button generation
 	for _, category := range data.Categories {
 		channelCount := len(data.CategoryChannels[category])
+		escapedCategory := html.EscapeString(category)
 		nav.WriteString(fmt.Sprintf(`                <button class="category-btn" onclick="toggleCategory('%s')" data-category="%s">
                     %s (%d)
                 </button>
-`, html.EscapeString(category), html.EscapeString(category), html.EscapeString(category), channelCount))
+`, escapedCategory, escapedCategory, escapedCategory, channelCount))
 	}
 
 	nav.WriteString(`            </div>
@@ -927,9 +984,13 @@ func (c *CatalogGenerator) buildNavigation(data CatalogData) string {
 
 func (c *CatalogGenerator) buildMainContent(data CatalogData) string {
 	var content strings.Builder
+	// Pre-allocate capacity based on estimated content size
+	estimatedContentSize := data.TotalChannels*120 + 5000 // Channel cards + overhead
+	content.Grow(estimatedContentSize)
+
 	content.WriteString(`<main id="mainContent">`)
 
-	// Add global pagination controls before categories
+	// Add global pagination controls before categories (using inline template for performance)
 	content.WriteString(`<div class="pagination-container global-pagination">
 		<div class="page-size-selector">
 			<label>Per page:</label>
@@ -953,45 +1014,90 @@ func (c *CatalogGenerator) buildMainContent(data CatalogData) string {
 		</div>
 	</div>`)
 
-	// Build each category section
+	// Build each category section more efficiently
 	for _, category := range data.Categories {
 		channels := data.CategoryChannels[category]
 		if len(channels) == 0 {
 			continue
 		}
+
 		// Sort channels by name within each category
-		sort.Slice(channels, func(i, j int) bool {
-			return channels[i].Name < channels[j].Name
-		})
-		content.WriteString(fmt.Sprintf(`<section class="category-section" data-category="%s"><h2 class="category-title">%s <span style="font-weight:400;color:#666;">(<span class="channel-count">%d</span> channels)</span></h2>`, html.EscapeString(category), html.EscapeString(category), len(channels)))
+		c.sortChannelsByName(channels)
+
+		// Pre-escape category data once
+		escapedCategory := html.EscapeString(category)
+
+		content.WriteString(fmt.Sprintf(`<section class="category-section" data-category="%s"><h2 class="category-title">%s <span style="font-weight:400;color:#666;">(<span class="channel-count">%d</span> channels)</span></h2>`, escapedCategory, escapedCategory, len(channels)))
 
 		content.WriteString(`<div class="channels-grid">`)
-		for _, channel := range channels {
-			content.WriteString(c.buildChannelCard(channel))
-		}
-		content.WriteString(`</div>`)
-		content.WriteString(`</section>`)
+
+		// Build channel cards in batch for better performance
+		c.buildChannelCardsInBatch(&content, channels)
+
+		content.WriteString(`</div></section>`)
 	}
 
 	content.WriteString(`<div id="noResults" class="no-results" style="display:none;"><h3>No channels found</h3><p>Try adjusting your search terms or selecting a different category.</p></div></main>`)
-	content.WriteString(`<footer class="footer"><div class="container">Generated by Discord IPTV Player • ` + time.Now().Format("January 2, 2006 at 3:04 PM") + `</div></footer></div>`)
+
+	// Cache the current time to avoid multiple calls
+	currentTime := time.Now().Format("January 2, 2006 at 3:04 PM")
+	content.WriteString(`<footer class="footer"><div class="container">Generated by Discord IPTV Player • ` + currentTime + `</div></footer></div>`)
 
 	return content.String()
 }
 
-func (c *CatalogGenerator) buildChannelCard(channel models.TvChannel) string {
-	escapedName := html.EscapeString(channel.Name)
-	escapedID := html.EscapeString(channel.ID)
+// sortChannelsByName sorts channels in place by name for better performance
+func (c *CatalogGenerator) sortChannelsByName(channels []models.TvChannel) {
+	sort.Slice(channels, func(i, j int) bool {
+		return channels[i].Name < channels[j].Name
+	})
+}
 
-	// Use minimal HTML structure - JavaScript will handle the rest
-	logoAttr := ""
-	if channel.Logo != "" {
-		logoAttr = fmt.Sprintf(` data-logo="%s"`, html.EscapeString(channel.Logo))
+// buildChannelCardsInBatch efficiently builds channel cards in batch to reduce individual WriteString calls
+func (c *CatalogGenerator) buildChannelCardsInBatch(content *strings.Builder, channels []models.TvChannel) {
+	if len(channels) == 0 {
+		return
 	}
 
-	// Ultra-compact structure: ~80% size reduction
-	return fmt.Sprintf(`<div class="c" data-n="%s" data-i="%s"%s></div>`,
-		strings.ToLower(escapedName), escapedID, logoAttr)
+	// Pre-allocate a temporary builder for batching
+	var batch strings.Builder
+	batch.Grow(len(channels) * 120) // Estimate 120 chars per channel card
+
+	// Process all channels in batch to minimize individual string operations
+	for _, channel := range channels {
+		// Cache escaped values to avoid repeated escaping in buildChannelCard
+		escapedName := html.EscapeString(channel.Name)
+		escapedID := html.EscapeString(channel.ID)
+		nameLower := strings.ToLower(escapedName)
+
+		// Inline the card building for better performance in batch operations
+		if channel.Logo != "" {
+			escapedLogo := html.EscapeString(channel.Logo)
+			batch.WriteString(fmt.Sprintf(`<div class="c" data-n="%s" data-i="%s" data-logo="%s"></div>`, nameLower, escapedID, escapedLogo))
+		} else {
+			batch.WriteString(fmt.Sprintf(`<div class="c" data-n="%s" data-i="%s"></div>`, nameLower, escapedID))
+		}
+	}
+
+	// Write all cards at once
+	content.WriteString(batch.String())
+}
+
+func (c *CatalogGenerator) buildChannelCard(channel models.TvChannel) string {
+	// Pre-escape and cache values to avoid repeated operations
+	escapedName := html.EscapeString(channel.Name)
+	escapedID := html.EscapeString(channel.ID)
+	nameLower := strings.ToLower(escapedName)
+
+	// Build logo attribute more efficiently
+	if channel.Logo != "" {
+		escapedLogo := html.EscapeString(channel.Logo)
+		// Use more efficient string concatenation for the logo case
+		return fmt.Sprintf(`<div class="c" data-n="%s" data-i="%s" data-logo="%s"></div>`, nameLower, escapedID, escapedLogo)
+	}
+
+	// Ultra-compact structure without logo
+	return fmt.Sprintf(`<div class="c" data-n="%s" data-i="%s"></div>`, nameLower, escapedID)
 }
 
 func (c *CatalogGenerator) buildJavaScript() string {
@@ -1767,6 +1873,912 @@ func (c *CatalogGenerator) buildJavaScript() string {
             ViewManager.update();
             initializeEventListeners();
         }// Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+    </script>`
+}
+
+// Methods for embedded JSON approach
+
+func (c *CatalogGenerator) buildHeaderForEmbeddedJSON() string {
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPTV Catalog</title>
+    <meta name="description" content="IPTV Channel Catalog with Enhanced Performance">
+`
+}
+
+func (c *CatalogGenerator) buildNavigationForEmbeddedJSON() string {
+	return `    <header>
+        <div class="container">
+            <h1>IPTV Channel Catalog</h1>
+            <div class="subtitle" id="playlistSubtitle"></div>
+            <div class="playlist-command">
+                <span class="playlist-id" id="playlistCommand" title="Click to copy Discord command">
+                    <span class="copy-icon">📋</span>
+                    <div class="copy-feedback">Command copied!</div>
+                </span>
+            </div>
+            <div class="stats" id="catalogStats"></div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="search-container">
+            <div class="search-wrapper">
+                <input type="text" id="searchBox" class="search-box" placeholder="Search channels...">
+                <button class="clear-search" id="clearSearch" onclick="clearSearch()" title="Clear search">✕</button>
+            </div>
+        </div>
+
+        <nav class="categories-nav collapsed" id="categoriesNav">
+            <div class="categories-grid collapsed" id="categoriesGrid">
+                <button class="category-btn show-all-btn active" onclick="toggleCategoriesView()" id="showAllBtn">
+                    Show All Categories <span class="expand-icon">▼</span>
+                </button>
+                <!-- Categories will be populated by JavaScript -->
+            </div>
+        </nav>
+`
+}
+
+func (c *CatalogGenerator) buildMainContentForEmbeddedJSON() string {
+	return `<main id="mainContent">
+    <!-- Global pagination controls -->
+    <div class="pagination-container global-pagination">
+        <div class="page-size-selector">
+            <label>Per page:</label>
+            <select class="page-size-select" onchange="updatePageSize(this.value)">
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200" selected>200</option>
+                <option value="500">500</option>
+            </select>
+        </div>
+        <div class="pagination-info">
+            <span class="page-info">Page <span class="current-page">1</span> of <span class="total-pages">1</span></span>
+            <span class="results-info">(<span class="visible-channels">0</span> of <span class="total-channels">0</span> channels)</span>
+        </div>
+        <div class="pagination-controls">
+            <button class="pagination-btn" onclick="goToFirstPage()" title="First page">⏮</button>
+            <button class="pagination-btn" onclick="goToPrevPage()" title="Previous page">◀</button>
+            <div class="page-numbers"></div>
+            <button class="pagination-btn" onclick="goToNextPage()" title="Next page">▶</button>
+            <button class="pagination-btn" onclick="goToLastPage()" title="Last page">⏭</button>
+        </div>
+    </div>
+
+    <!-- Categories and channels will be populated by JavaScript -->
+    <div id="categoriesContainer"></div>
+
+    <div id="noResults" class="no-results" style="display:none;">
+        <h3>No channels found</h3>
+        <p>Try adjusting your search terms or selecting a different category.</p>
+    </div>
+</main>
+
+<footer class="footer">
+    <div class="container">
+        Generated by Discord IPTV Player • <span id="generatedDate"></span>
+    </div>
+</footer>
+</div>
+`
+}
+
+func (c *CatalogGenerator) buildEmbeddedJSONScript(jsonData string) string {
+	return fmt.Sprintf(`<script type="application/json" id="embedded-channel-data">%s</script>`, jsonData)
+}
+
+func (c *CatalogGenerator) buildJavaScriptForEmbeddedJSON() string {
+	return `    <script>
+        // Load data from embedded JSON with compact structure
+        let catalogData;
+        try {
+            const rawData = JSON.parse(document.getElementById('embedded-channel-data').textContent);
+            // Transform compact JSON structure back to readable format
+            catalogData = {
+                playlistName: rawData.p || 'Unknown',
+                date: rawData.d || new Date().toDateString(),
+                categories: rawData.c || [],
+                categoryChannels: rawData.cc || {},
+                totalChannels: rawData.t || 0
+            };
+        } catch (e) {
+            console.error('Failed to parse embedded JSON data:', e);
+            catalogData = {
+                playlistName: 'Unknown',
+                date: new Date().toDateString(),
+                categories: [],
+                categoryChannels: {},
+                totalChannels: 0
+            };
+        }
+
+        // Application state
+        const AppState = {
+            currentCategory: 'all',
+            searchTerm: '',
+            categoriesExpanded: false,
+            searchTimeout: null,
+            pagination: {
+                currentPage: 1,
+                pageSize: 200,
+                totalPages: 1,
+                totalChannels: 0,
+                visibleChannels: 0
+            }
+        };
+
+        // Enhanced DOM cache
+        const DOMCache = {
+            searchBox: null,
+            clearBtn: null,
+            categoriesGrid: null,
+            categoriesNav: null,
+            showAllBtn: null,
+            noResults: null,
+            sections: null,
+            categoryBtns: null,
+            mainContent: null,
+            categoriesContainer: null,
+
+            // Performance optimization: Cache channel data
+            allChannelData: [],
+            visibleChannelElements: new Map(),
+            sectionChannelMap: new Map(),
+
+            init() {
+                this.searchBox = document.getElementById('searchBox');
+                this.clearBtn = document.getElementById('clearSearch');
+                this.categoriesGrid = document.getElementById('categoriesGrid');
+                this.categoriesNav = document.getElementById('categoriesNav');
+                this.showAllBtn = document.getElementById('showAllBtn');
+                this.noResults = document.getElementById('noResults');
+                this.mainContent = document.getElementById('mainContent');
+                this.categoriesContainer = document.getElementById('categoriesContainer');
+
+                // Initialize the page with catalog data
+                this.initializePage();
+                this.buildCategoriesNavigation();
+                this.buildChannelSections();
+                this.cacheChannelData();
+
+                // Cache NodeLists after building content
+                this.sections = document.querySelectorAll('.category-section');
+                this.categoryBtns = document.querySelectorAll('.category-btn');
+            },
+
+            initializePage() {
+                // Set playlist information
+                const playlistSubtitle = document.getElementById('playlistSubtitle');
+                const playlistCommand = document.getElementById('playlistCommand');
+                const catalogStats = document.getElementById('catalogStats');
+                const generatedDate = document.getElementById('generatedDate');
+
+                if (playlistSubtitle) playlistSubtitle.textContent = catalogData.playlistName;
+                if (catalogStats) catalogStats.textContent = catalogData.categories.length + ' categories • ' + catalogData.totalChannels + ' channels • Generated on ' + catalogData.date;
+                if (generatedDate) generatedDate.textContent = catalogData.date;
+
+                if (playlistCommand) {
+                    playlistCommand.innerHTML = '/playlist name:' + this.escapeHtml(catalogData.playlistName) + ' <span class="copy-icon">📋</span><div class="copy-feedback">Command copied!</div>';
+                    playlistCommand.onclick = (event) => ClipboardManager.copyPlaylist(catalogData.playlistName, event);
+                }
+
+                // Update show all button
+                if (this.showAllBtn) {
+                    this.showAllBtn.innerHTML = 'Show All Categories (' + catalogData.categories.length + ') <span class="expand-icon">▼</span>';
+                }
+            },
+
+            buildCategoriesNavigation() {
+                if (!this.categoriesGrid) return;
+
+                catalogData.categories.forEach(category => {
+                    const channelCount = catalogData.categoryChannels[category] ? catalogData.categoryChannels[category].length : 0;
+                    const button = document.createElement('button');
+                    button.className = 'category-btn';
+                    button.textContent = category + ' (' + channelCount + ')';
+                    button.onclick = () => CategoryManager.toggle(category);
+                    this.categoriesGrid.appendChild(button);
+                });
+            },
+
+            buildChannelSections() {
+                if (!this.categoriesContainer) return;
+
+                catalogData.categories.forEach(category => {
+                    const channels = catalogData.categoryChannels[category] || [];
+                    if (channels.length === 0) return;
+
+                    // Sort channels by name (using compact structure: n = name)
+                    channels.sort((a, b) => a.n.localeCompare(b.n));
+
+                    const section = document.createElement('section');
+                    section.className = 'category-section';
+                    section.setAttribute('data-category', category);
+
+                    const title = document.createElement('h2');
+                    title.className = 'category-title';
+                    title.innerHTML = this.escapeHtml(category) + ' <span style="font-weight:400;color:#666;">(<span class="channel-count">' + channels.length + '</span> channels)</span>';
+
+                    const channelsGrid = document.createElement('div');
+                    channelsGrid.className = 'channels-grid';
+
+                    channels.forEach(channel => {
+                        const channelCard = this.createChannelCard(channel);
+                        channelsGrid.appendChild(channelCard);
+                    });
+
+                    section.appendChild(title);
+                    section.appendChild(channelsGrid);
+                    this.categoriesContainer.appendChild(section);
+                });
+            },
+
+            createChannelCard(channel) {
+                const card = document.createElement('div');
+                card.className = 'c';
+                // Use compact JSON structure (i = id, n = name, l = logo)
+                card.setAttribute('data-n', channel.n.toLowerCase());
+                card.setAttribute('data-i', channel.i);
+                if (channel.l) {
+                    card.setAttribute('data-logo', channel.l);
+                }
+                return card;
+            },
+
+            cacheChannelData() {
+                console.time('Channel data caching');
+                this.allChannelData = [];
+                this.sectionChannelMap.clear();
+
+                this.sections = document.querySelectorAll('.category-section');
+                this.sections.forEach(section => {
+                    const category = section.dataset.category;
+                    const channels = Array.from(section.querySelectorAll('.c'));
+
+                    // Cache channels by category
+                    this.sectionChannelMap.set(category, channels);
+
+                    // Cache channel data for faster searching
+                    channels.forEach(channel => {
+                        this.allChannelData.push({
+                            element: channel,
+                            name: (channel.dataset.n || '').toLowerCase(),
+                            category: category,
+                            id: channel.dataset.i,
+                            logo: channel.dataset.logo
+                        });
+                    });
+                });
+
+                console.timeEnd('Channel data caching');
+                console.log('Cached ' + this.allChannelData.length + ' channels across ' + this.sections.length + ' categories');
+            },
+
+            refresh() {
+                const currentSectionCount = document.querySelectorAll('.category-section').length;
+                if (currentSectionCount !== this.sections.length) {
+                    this.sections = document.querySelectorAll('.category-section');
+                    this.categoryBtns = document.querySelectorAll('.category-btn');
+                    this.cacheChannelData();
+                }
+            },
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        };
+
+        // Utility functions
+        const Utils = {
+            debounce(func, wait) {
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(AppState.searchTimeout);
+                        func(...args);
+                    };
+                    clearTimeout(AppState.searchTimeout);
+                    AppState.searchTimeout = setTimeout(later, wait);
+                };
+            },
+
+            sanitizeInput(input) {
+                return input.toLowerCase().trim();
+            },
+
+            showElement(element, display = 'block') {
+                if (element) element.style.display = display;
+            },
+
+            hideElement(element) {
+                if (element) element.style.display = 'none';
+            },
+
+            scrollToElement(element, options = { behavior: 'smooth', block: 'start' }) {
+                if (element) {
+                    element.scrollIntoView(options);
+                }
+            }
+        };
+
+        // Search functionality
+        const SearchManager = {
+            clear() {
+                if (!DOMCache.searchBox || !DOMCache.clearBtn) return;
+
+                DOMCache.searchBox.value = '';
+                AppState.searchTerm = '';
+                DOMCache.clearBtn.classList.remove('visible');
+                ViewManager.update();
+                DOMCache.searchBox.focus();
+            },
+
+            toggleClearButton() {
+                if (!DOMCache.searchBox || !DOMCache.clearBtn) return;
+
+                if (DOMCache.searchBox.value.length > 0) {
+                    DOMCache.clearBtn.classList.add('visible');
+                } else {
+                    DOMCache.clearBtn.classList.remove('visible');
+                }
+            },
+
+            handleInput: Utils.debounce(function(value) {
+                AppState.searchTerm = Utils.sanitizeInput(value);
+                AppState.pagination.currentPage = 1;
+                SearchManager.toggleClearButton();
+
+                if (DOMCache.allChannelData.length > 1000) {
+                    ViewManager.updateOptimized();
+                } else {
+                    ViewManager.update();
+                }
+            }, 150)
+        };
+
+        // Clipboard functionality
+        const ClipboardManager = {
+            async copy(channelId, event) {
+                if (!event) return;
+
+                const clickedElement = event.target.closest('.channel-id');
+                const feedback = clickedElement?.querySelector('.copy-feedback');
+
+                if (!clickedElement || !feedback) return;
+
+                const discordCommand = '/tv channel:' + channelId;
+
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(discordCommand);
+                    } else {
+                        this.fallbackCopy(discordCommand);
+                    }
+                    this.showFeedback(clickedElement, feedback);
+                } catch (err) {
+                    console.warn('Clipboard copy failed, using fallback:', err);
+                    this.fallbackCopy(discordCommand);
+                    this.showFeedback(clickedElement, feedback);
+                }
+            },
+
+            async copyPlaylist(playlistName, event) {
+                if (!event) return;
+
+                const clickedElement = event.target.closest('.playlist-id');
+                const feedback = clickedElement?.querySelector('.copy-feedback');
+
+                if (!clickedElement || !feedback) return;
+
+                const discordCommand = '/playlist name:' + playlistName;
+
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(discordCommand);
+                    } else {
+                        this.fallbackCopy(discordCommand);
+                    }
+                    this.showFeedback(clickedElement, feedback);
+                } catch (err) {
+                    console.warn('Clipboard copy failed, using fallback:', err);
+                    this.fallbackCopy(discordCommand);
+                    this.showFeedback(clickedElement, feedback);
+                }
+            },
+
+            fallbackCopy(text) {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.cssText = 'position:fixed;left:-999999px;top:-999999px;opacity:0;';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                try {
+                    document.execCommand('copy');
+                } catch (err) {
+                    console.error('Fallback copy failed:', err);
+                } finally {
+                    document.body.removeChild(textArea);
+                }
+            },
+
+            showFeedback(element, feedback) {
+                if (!element || !feedback) return;
+
+                element.classList.add('copied');
+                feedback.classList.add('show');
+
+                setTimeout(() => element.classList.remove('copied'), 600);
+                setTimeout(() => feedback.classList.remove('show'), 2000);
+            }
+        };
+
+        // Category management
+        const CategoryManager = {
+            toggleView() {
+                if (!DOMCache.categoriesGrid || !DOMCache.categoriesNav || !DOMCache.showAllBtn) return;
+
+                AppState.categoriesExpanded = !AppState.categoriesExpanded;
+
+                if (AppState.categoriesExpanded) {
+                    this.expandCategories();
+                } else {
+                    this.collapseCategories();
+                }
+
+                if (AppState.categoriesExpanded || AppState.currentCategory === 'all') {
+                    this.showAll();
+                }
+            },
+
+            expandCategories() {
+                DOMCache.categoriesGrid.classList.remove('collapsed');
+                DOMCache.categoriesGrid.classList.add('expanded');
+                DOMCache.categoriesNav.classList.remove('collapsed');
+                DOMCache.showAllBtn.classList.add('expanded');
+                this.updateButtonText('Collapse Categories', '▲');
+            },
+
+            collapseCategories() {
+                DOMCache.categoriesGrid.classList.remove('expanded');
+                DOMCache.categoriesGrid.classList.add('collapsed');
+                DOMCache.categoriesNav.classList.add('collapsed');
+                DOMCache.showAllBtn.classList.remove('expanded');
+                this.updateButtonText('Show All Categories', '▼');
+            },
+
+            updateButtonText(text, arrow) {
+                if (!DOMCache.showAllBtn) return;
+
+                DOMCache.showAllBtn.innerHTML = text + ' (' + catalogData.categories.length + ') <span class="expand-icon">' + arrow + '</span>';
+            },
+
+            showAll() {
+                AppState.currentCategory = 'all';
+                AppState.pagination.currentPage = 1;
+                ViewManager.update();
+                this.updateActiveButton('show-all');
+            },
+
+            show(category) {
+                AppState.currentCategory = category;
+                AppState.pagination.currentPage = 1;
+                ViewManager.update();
+                this.updateActiveButton(category);
+
+                if (AppState.categoriesExpanded) {
+                    this.toggleView();
+                }
+            },
+
+            toggle(category) {
+                if (AppState.currentCategory === category) {
+                    this.showAll();
+                } else {
+                    this.show(category);
+                }
+            },
+
+            updateActiveButton(activeCategory) {
+                if (!DOMCache.categoryBtns) return;
+
+                DOMCache.categoryBtns.forEach(btn => btn.classList.remove('active'));
+
+                if (activeCategory === 'show-all') {
+                    DOMCache.showAllBtn?.classList.add('active');
+                } else {
+                    DOMCache.categoryBtns.forEach(btn => {
+                        if (btn.textContent.includes(activeCategory)) {
+                            btn.classList.add('active');
+                        }
+                    });
+                }
+            }
+        };
+
+        // View management
+        const ViewManager = {
+            update() {
+                if (!DOMCache.sections || !DOMCache.noResults) return;
+
+                let allChannels = [];
+
+                DOMCache.sections.forEach(section => {
+                    const category = section.dataset.category;
+                    const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === category;
+
+                    if (shouldShowCategory) {
+                        const channels = this.getChannelsInSection(section);
+                        allChannels = allChannels.concat(channels);
+                    }
+                });
+
+                PaginationManager.updatePagination(allChannels);
+
+                const hasVisibleResults = this.checkForVisibleResults();
+                if (hasVisibleResults) {
+                    Utils.hideElement(DOMCache.noResults);
+                } else {
+                    Utils.showElement(DOMCache.noResults);
+                }
+            },
+
+            checkForVisibleResults() {
+                let hasResults = false;
+                DOMCache.sections.forEach(section => {
+                    const visibleChannels = section.querySelectorAll('.c:not([style*="display: none"])');
+                    const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === section.dataset.category;
+
+                    if (shouldShowCategory && visibleChannels.length > 0) {
+                        hasResults = true;
+                    }
+                });
+
+                return hasResults;
+            },
+
+            getChannelsInSection(section) {
+                const channels = section.querySelectorAll('.c');
+                return Array.from(channels);
+            },
+
+            updateOptimized() {
+                console.time('ViewManager.updateOptimized');
+
+                if (!DOMCache.sections || !DOMCache.noResults) return;
+
+                const filteredChannelData = this.getFilteredChannelData();
+                const filteredChannelElements = filteredChannelData.map(ch => ch.element);
+
+                PaginationManager.updatePagination(filteredChannelElements);
+
+                if (filteredChannelData.length > 0) {
+                    Utils.hideElement(DOMCache.noResults);
+                } else {
+                    Utils.showElement(DOMCache.noResults);
+                }
+
+                console.timeEnd('ViewManager.updateOptimized');
+            },
+
+            getFilteredChannelData() {
+                if (!DOMCache.allChannelData || DOMCache.allChannelData.length === 0) {
+                    DOMCache.cacheChannelData();
+                }
+
+                return DOMCache.allChannelData.filter(channelData => {
+                    const categoryMatch = AppState.currentCategory === 'all' ||
+                                        AppState.currentCategory === channelData.category;
+                    const searchMatch = AppState.searchTerm === '' ||
+                                      channelData.name.includes(AppState.searchTerm);
+
+                    return categoryMatch && searchMatch;
+                });
+            }
+        };
+
+        // Pagination management
+        const PaginationManager = {
+            updatePagination(allChannels) {
+                const filteredChannels = allChannels.filter(channel => {
+                    const channelName = channel.dataset.n;
+                    return AppState.searchTerm === '' ||
+                           (channelName && channelName.toLowerCase().includes(AppState.searchTerm));
+                });
+
+                AppState.pagination.totalChannels = filteredChannels.length;
+                AppState.pagination.totalPages = Math.ceil(filteredChannels.length / AppState.pagination.pageSize);
+
+                if (AppState.pagination.currentPage > AppState.pagination.totalPages) {
+                    AppState.pagination.currentPage = 1;
+                }
+
+                if (AppState.pagination.currentPage < 1) {
+                    AppState.pagination.currentPage = 1;
+                }
+
+                this.showPage(filteredChannels);
+                this.updatePaginationUI();
+                this.updateChannelCounts();
+            },
+
+            showPage(filteredChannels) {
+                const startIndex = (AppState.pagination.currentPage - 1) * AppState.pagination.pageSize;
+                const endIndex = startIndex + AppState.pagination.pageSize;
+
+                const allChannels = document.querySelectorAll('.c');
+                allChannels.forEach(channel => Utils.hideElement(channel));
+
+                const channelsToShow = filteredChannels.slice(startIndex, endIndex);
+                channelsToShow.forEach(channel => Utils.showElement(channel));
+
+                AppState.pagination.visibleChannels = channelsToShow.length;
+
+                this.updateSectionVisibility();
+            },
+
+            updateSectionVisibility() {
+                DOMCache.sections.forEach(section => {
+                    const visibleChannels = section.querySelectorAll('.c:not([style*="display: none"])');
+                    const shouldShowCategory = AppState.currentCategory === 'all' || AppState.currentCategory === section.dataset.category;
+
+                    if (shouldShowCategory && visibleChannels.length > 0) {
+                        Utils.showElement(section);
+                        const countSpan = section.querySelector('.channel-count');
+                        if (countSpan) {
+                            const totalInCategory = section.querySelectorAll('.c').length;
+                            countSpan.textContent = totalInCategory;
+                        }
+
+                        const paginationContainer = document.querySelector('.global-pagination');
+                        if (paginationContainer) {
+                            if (AppState.pagination.totalPages > 1) {
+                                Utils.showElement(paginationContainer, 'flex');
+                            } else {
+                                Utils.hideElement(paginationContainer);
+                            }
+                        }
+                    } else {
+                        Utils.hideElement(section);
+                    }
+                });
+            },
+
+            updatePaginationUI() {
+                const paginationContainer = document.querySelector('.global-pagination');
+                if (!paginationContainer) return;
+
+                const currentPageSpan = paginationContainer.querySelector('.current-page');
+                const totalPagesSpan = paginationContainer.querySelector('.total-pages');
+                const visibleChannelsSpan = paginationContainer.querySelector('.visible-channels');
+                const totalChannelsSpan = paginationContainer.querySelector('.total-channels');
+
+                if (currentPageSpan) currentPageSpan.textContent = AppState.pagination.currentPage;
+                if (totalPagesSpan) totalPagesSpan.textContent = AppState.pagination.totalPages;
+                if (visibleChannelsSpan) visibleChannelsSpan.textContent = AppState.pagination.visibleChannels;
+                if (totalChannelsSpan) totalChannelsSpan.textContent = AppState.pagination.totalChannels;
+
+                this.updatePaginationControls(paginationContainer);
+            },
+
+            updatePaginationControls(container) {
+                const controls = container.querySelector('.pagination-controls');
+                if (!controls) return;
+
+                const buttons = controls.querySelectorAll('.pagination-btn');
+                const pageNumbersDiv = controls.querySelector('.page-numbers');
+
+                buttons[0].disabled = AppState.pagination.currentPage === 1;
+                buttons[1].disabled = AppState.pagination.currentPage === 1;
+                buttons[buttons.length - 2].disabled = AppState.pagination.currentPage === AppState.pagination.totalPages;
+                buttons[buttons.length - 1].disabled = AppState.pagination.currentPage === AppState.pagination.totalPages;
+
+                this.generatePageNumbers(pageNumbersDiv);
+            },
+
+            generatePageNumbers(container) {
+                if (!container) return;
+
+                container.innerHTML = '';
+
+                if (AppState.pagination.totalPages <= 1) return;
+
+                const currentPage = AppState.pagination.currentPage;
+                const totalPages = AppState.pagination.totalPages;
+
+                let startPage = Math.max(1, currentPage - 2);
+                let endPage = Math.min(totalPages, currentPage + 2);
+
+                if (endPage - startPage < 4) {
+                    if (startPage === 1) {
+                        endPage = Math.min(totalPages, startPage + 4);
+                    } else if (endPage === totalPages) {
+                        startPage = Math.max(1, endPage - 4);
+                    }
+                }
+
+                if (startPage > 1) {
+                    this.addPageButton(container, 1);
+                    if (startPage > 2) {
+                        container.appendChild(this.createEllipsis());
+                    }
+                }
+
+                for (let i = startPage; i <= endPage; i++) {
+                    this.addPageButton(container, i, i === currentPage);
+                }
+
+                if (endPage < totalPages) {
+                    if (endPage < totalPages - 1) {
+                        container.appendChild(this.createEllipsis());
+                    }
+                    this.addPageButton(container, totalPages);
+                }
+            },
+
+            addPageButton(container, pageNumber, isActive = false) {
+                const button = document.createElement('button');
+                button.className = 'pagination-btn' + (isActive ? ' active' : '');
+                button.textContent = pageNumber;
+                button.onclick = () => this.goToPage(pageNumber);
+                container.appendChild(button);
+            },
+
+            createEllipsis() {
+                const span = document.createElement('span');
+                span.className = 'pagination-ellipsis';
+                span.textContent = '...';
+                span.style.cssText = 'padding: 0 8px; color: var(--text-muted);';
+                return span;
+            },
+
+            goToPage(pageNumber) {
+                AppState.pagination.currentPage = pageNumber;
+                ViewManager.update();
+                this.scrollToTop();
+            },
+
+            goToFirstPage() {
+                this.goToPage(1);
+            },
+
+            goToPrevPage() {
+                if (AppState.pagination.currentPage > 1) {
+                    this.goToPage(AppState.pagination.currentPage - 1);
+                }
+            },
+
+            goToNextPage() {
+                if (AppState.pagination.currentPage < AppState.pagination.totalPages) {
+                    this.goToPage(AppState.pagination.currentPage + 1);
+                }
+            },
+
+            goToLastPage() {
+                this.goToPage(AppState.pagination.totalPages);
+            },
+
+            updatePageSize(newSize) {
+                AppState.pagination.pageSize = parseInt(newSize);
+                AppState.pagination.currentPage = 1;
+                ViewManager.update();
+            },
+
+            updateChannelCounts() {
+                const searchInfo = document.querySelector('.search-results-info');
+                if (searchInfo) {
+                    searchInfo.textContent = AppState.pagination.totalChannels + ' channels found';
+                }
+            },
+
+            scrollToTop() {
+                Utils.scrollToElement(DOMCache.mainContent);
+            }
+        };
+
+        // Dynamic content generator for compact cards
+        const ContentGenerator = {
+            generateChannelCards() {
+                document.querySelectorAll('.c').forEach(card => {
+                    if (card.innerHTML) return;
+
+                    const name = card.dataset.n;
+                    const id = card.dataset.i;
+                    const logo = card.dataset.logo;
+
+                    const displayName = this.capitalize(name);
+                    const firstLetter = displayName.charAt(0).toUpperCase();
+
+                    const logoHtml = logo ?
+                        '<img src="' + this.escapeHtml(logo) + '" alt="' + this.escapeHtml(displayName) + ' Logo" class="channel-logo" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="no-logo" style="display:none;">' + firstLetter + '</div>' :
+                        '<div class="no-logo">' + firstLetter + '</div>';
+
+                    card.innerHTML = logoHtml + '<h3 class="channel-name">' + this.escapeHtml(displayName) + '</h3><span class="channel-id" onclick="copyChannelId(\'' + this.escapeHtml(id) + '\')" title="Click to copy Discord command">/tv channel:' + this.escapeHtml(id) + ' <span class="copy-icon">📋</span><div class="copy-feedback">Command copied!</div></span>';
+                });
+            },
+
+            capitalize(str) {
+                return str.split(' ').map(word =>
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+            },
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        };
+
+        // Keyboard navigation
+        const KeyboardManager = {
+            init() {
+                document.addEventListener('keydown', this.handleKeydown.bind(this));
+            },
+
+            handleKeydown(event) {
+                if (event.key === 'Escape' && AppState.searchTerm) {
+                    event.preventDefault();
+                    SearchManager.clear();
+                }
+
+                if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+                    event.preventDefault();
+                    DOMCache.searchBox?.focus();
+                }
+            }
+        };
+
+        // Global functions (needed for inline onclick handlers)
+        window.clearSearch = () => SearchManager.clear();
+        window.copyChannelId = (channelId) => ClipboardManager.copy(channelId, window.event);
+        window.copyPlaylistId = (playlistName) => ClipboardManager.copyPlaylist(playlistName, window.event);
+        window.toggleCategoriesView = () => CategoryManager.toggleView();
+        window.toggleCategory = (category) => CategoryManager.toggle(category);
+        window.goToFirstPage = () => PaginationManager.goToFirstPage();
+        window.goToPrevPage = () => PaginationManager.goToPrevPage();
+        window.goToNextPage = () => PaginationManager.goToNextPage();
+        window.goToLastPage = () => PaginationManager.goToLastPage();
+        window.updatePageSize = (newSize) => PaginationManager.updatePageSize(newSize);
+
+        // Event listeners
+        function initializeEventListeners() {
+            DOMCache.searchBox?.addEventListener('input', (e) => {
+                SearchManager.handleInput(e.target.value);
+            });
+
+            DOMCache.categoryBtns?.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setTimeout(() => {
+                        Utils.scrollToElement(DOMCache.mainContent);
+                    }, 100);
+                });
+            });
+
+            KeyboardManager.init();
+        }
+
+        // Application initialization
+        function initializeApp() {
+            DOMCache.init();
+            ContentGenerator.generateChannelCards();
+            SearchManager.toggleClearButton();
+            ViewManager.update();
+            initializeEventListeners();
+        }
+
+        // Initialize when DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initializeApp);
         } else {
