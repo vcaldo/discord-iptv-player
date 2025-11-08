@@ -8,7 +8,8 @@ const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 2000;
 
 export class RedisService {
-    private redis!: Redis;
+    private pubClient!: Redis; // used for normal commands and publishing
+    private subClient!: Redis; // used exclusively for subscriptions
     private isConnected: boolean = false;
     private reconnectAttempts: number = 0;
     private subscriptions: Map<string, (message: RedisMessage) => Promise<void>> = new Map();
@@ -26,21 +27,26 @@ export class RedisService {
                 port: config.redisPort,
                 passwordProvided: !!config.redisPassword
             });
-
-            this.redis = new Redis({
+            // create a client for commands/publish
+            this.pubClient = new Redis({
                 host: config.redisHost,
                 port: config.redisPort,
                 password: config.redisPassword,
                 retryStrategy: (times) => {
                     if (times >= MAX_RETRY_ATTEMPTS) {
-                        this.logger.error(`Redis connection failed after ${times} attempts. No further retries.`);
+                        this.logger.error(`Redis pub client failed after ${times} attempts. No further retries.`);
                         return null;
                     }
                     const delay = Math.min(RETRY_DELAY_MS * Math.pow(2, times), 30000);
-                    this.logger.warn(`Retrying Redis connection in ${delay}ms (attempt ${times + 1}/${MAX_RETRY_ATTEMPTS})...`);
+                    this.logger.warn(`Retrying Redis pub client in ${delay}ms (attempt ${times + 1}/${MAX_RETRY_ATTEMPTS})...`);
                     return delay;
                 }
             });
+
+            // create a dedicated client for subscriptions by duplicating the pub client
+            // disable the ready check on the subscriber to avoid INFO commands being sent
+            // which can fail if the connection is placed into subscriber mode
+            this.subClient = this.pubClient.duplicate({ enableReadyCheck: false });
 
             this.setupEventHandlers();
         } catch (error) {
@@ -50,36 +56,62 @@ export class RedisService {
     }
 
     private setupEventHandlers() {
-        this.redis.on('connect', () => {
-            this.logger.info('Connected to Redis server', {
+        // Pub client events (used for commands/publish)
+        this.pubClient.on('connect', () => {
+            this.logger.info('Connected to Redis (pub client)', {
                 host: config.redisHost,
                 port: config.redisPort
             });
             this.isConnected = true;
             this.reconnectAttempts = 0;
-            this.restoreSubscriptions();
         });
 
-        this.redis.on('error', (error) => {
-            this.logger.error('Redis connection error:', error);
+        this.pubClient.on('error', (error) => {
+            this.logger.error('Redis pub client error:', error);
             if (this.isConnected) {
                 this.isConnected = false;
             }
         });
 
-        this.redis.on('close', () => {
-            this.logger.warn('Redis connection closed');
+        this.pubClient.on('close', () => {
+            this.logger.warn('Redis pub client closed');
             this.isConnected = false;
         });
 
-        this.redis.on('reconnecting', () => {
-            this.logger.info('Attempting to reconnect to Redis...');
+        this.pubClient.on('reconnecting', () => {
+            this.logger.info('Attempting to reconnect Redis pub client...');
         });
 
-        this.redis.on('end', () => {
-            this.logger.warn('Redis connection ended');
+        this.pubClient.on('end', () => {
+            this.logger.warn('Redis pub client ended');
             this.isConnected = false;
             this.attemptReconnect();
+        });
+
+        // Sub client events (used exclusively for subscriptions)
+        this.subClient.on('connect', () => {
+            this.logger.info('Connected to Redis (sub client)', {
+                host: config.redisHost,
+                port: config.redisPort
+            });
+            // restore subscriptions only when sub client reconnects
+            this.restoreSubscriptions();
+        });
+
+        this.subClient.on('error', (error) => {
+            this.logger.error('Redis sub client error:', error);
+        });
+
+        this.subClient.on('close', () => {
+            this.logger.warn('Redis sub client closed');
+        });
+
+        this.subClient.on('reconnecting', () => {
+            this.logger.info('Attempting to reconnect Redis sub client...');
+        });
+
+        this.subClient.on('end', () => {
+            this.logger.warn('Redis sub client ended');
         });
     }
 
@@ -122,7 +154,7 @@ export class RedisService {
 
     private async subscribeToChannel(channel: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.redis.subscribe(channel, (err) => {
+            this.subClient.subscribe(channel, (err) => {
                 if (err) {
                     this.logger.error(`Failed to subscribe to Redis channel ${channel}:`, err);
                     reject(err);
@@ -145,8 +177,9 @@ export class RedisService {
 
             while (attempts < MAX_RETRY_ATTEMPTS && !subscribed) {
                 try {
-                    if (!this.isConnected) {
-                        this.logger.warn('Redis not connected. Waiting before attempting to subscribe...');
+                    // ensure pub client is connected (for general health) and sub client is ready for subscribing
+                    if (!this.isConnected || !this.subClient || this.subClient.status !== 'ready') {
+                        this.logger.warn('Redis not fully ready. Waiting before attempting to subscribe...');
                         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
                         attempts++;
                         continue;
@@ -157,9 +190,9 @@ export class RedisService {
                     });
                     subscribed = true;
 
-                    if (!this.redis.listenerCount('message')) {
+                    if (!this.subClient.listenerCount('message')) {
                         this.logger.debug('Setting up Redis message handler');
-                        this.redis.on('message', async (receivedChannel: string, message: string) => {
+                        this.subClient.on('message', async (receivedChannel: string, message: string) => {
                             const handler = this.subscriptions.get(receivedChannel);
                             if (handler) {
                                 try {
@@ -247,7 +280,7 @@ export class RedisService {
                     });
 
                     const result = await newrelic.startSegment('redis-publish', true, async () => {
-                        return await this.redis.publish(channel, stringifiedMessage);
+                        return await this.pubClient.publish(channel, stringifiedMessage);
                     });
 
                     this.logger.info(`Published message to channel ${channel}, received by ${result} subscriber(s)`, {
@@ -279,8 +312,18 @@ export class RedisService {
         try {
             if (this.isConnected) {
                 this.logger.info('Disconnecting from Redis');
-                this.redis.disconnect();
-                this.logger.info('Redis disconnected successfully');
+                // disconnect both clients
+                try {
+                    this.pubClient.disconnect();
+                } catch (err) {
+                    this.logger.error('Error disconnecting pub client:', err);
+                }
+                try {
+                    this.subClient.disconnect();
+                } catch (err) {
+                    this.logger.error('Error disconnecting sub client:', err);
+                }
+                this.logger.info('Redis clients disconnected successfully');
             }
         } catch (error) {
             this.logger.error('Error disconnecting from Redis:', error);
@@ -291,7 +334,7 @@ export class RedisService {
     }
 
     public isReady(): boolean {
-        return this.isConnected && this.redis.status === 'ready';
+        return this.isConnected && this.pubClient && this.pubClient.status === 'ready';
     }
 
     /**
@@ -301,7 +344,7 @@ export class RedisService {
      */
     public async set(key: string, value: string): Promise<void> {
         try {
-            await this.redis.set(key, value);
+            await this.pubClient.set(key, value);
         } catch (error) {
             throw new Error(`Failed to set Redis key ${key}: ${error}`);
         }
