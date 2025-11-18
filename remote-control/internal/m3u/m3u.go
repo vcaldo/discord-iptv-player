@@ -105,6 +105,8 @@ func downloadPlaylist(ctx context.Context, url string) (string, error) {
 		txn.NoticeError(err)
 		return "", err
 	}
+	// debud remove later
+	fmt.Printf("downloaded %d bytes\n", len(body))
 
 	return string(body), nil
 }
