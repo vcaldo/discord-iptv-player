@@ -31,17 +31,20 @@ func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Applicat
 
 	// Set up Redis client with timeout options
 	rdb := redis.NewClient(&redis.Options{
-		Addr:         cfg.RedisAddress,
-		Password:     cfg.RedisPassword,
-		DB:           cfg.RedisDB,
-		DialTimeout:  10 * time.Second,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		PoolSize:     10,
-		PoolTimeout:  30 * time.Second,
-		MaxRetries:   5,
-		MaxConnAge:   0,
-		IdleTimeout:  5 * time.Minute,
+		Addr:        cfg.RedisAddress,
+		Password:    cfg.RedisPassword,
+		DB:          cfg.RedisDB,
+		DialTimeout: 20 * time.Second,
+		ReadTimeout: 2 * time.Minute,
+		// Increase write timeout to allow large pipeline writes
+		WriteTimeout: 10 * time.Minute,
+		PoolSize:     20,
+		// Allow longer pool wait
+		PoolTimeout: 10 * time.Minute,
+		// Increase retries for transient network glitches
+		MaxRetries:  10,
+		MaxConnAge:  0,
+		IdleTimeout: 10 * time.Minute,
 	})
 
 	var pong string
@@ -95,74 +98,113 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 		categoriesKey := fmt.Sprintf("%s:categories", playlistKey)
 		categoryCountsKey := fmt.Sprintf("%s:category-counts", playlistKey)
-
-		pipe := c.rdb.Pipeline()
-
-		pipe.HSet(playlistKey, "name", playlist.Name)
-		pipe.HSet(playlistKey, "source", playlist.Source)
-		pipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
-		pipe.HSet(playlistKey, "length", len(playlist.Channels))
+		// We'll do the metadata and deletions first, then write channels in batches to avoid a single large write
+		// causing network timeouts.
+		// Execute metadata/deletes first
+		metaPipe := c.rdb.Pipeline()
+		metaPipe.HSet(playlistKey, "name", playlist.Name)
+		metaPipe.HSet(playlistKey, "source", playlist.Source)
+		metaPipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
+		metaPipe.HSet(playlistKey, "length", len(playlist.Channels))
 
 		// Delete existing channels, categories, and category counts before updating
-		pipe.Del(channelsKey)
-		pipe.Del(categoriesKey)
-		pipe.Del(categoryCountsKey)
+		metaPipe.Del(channelsKey)
+		metaPipe.Del(categoriesKey)
+		metaPipe.Del(categoryCountsKey)
 
 		// Delete existing category-to-channel mappings
-		// We need to get existing categories first to clean up their mappings
 		existingCategories, err := c.rdb.SMembers(categoriesKey).Result()
 		if err == nil {
 			for _, category := range existingCategories {
 				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, category)
-				pipe.Del(categoryChannelsKey)
+				metaPipe.Del(categoryChannelsKey)
 			}
+		}
+
+		// Execute metadata deletions early so the heavy channel writes are separate
+		if _, err := metaPipe.Exec(); err != nil {
+			return fmt.Errorf("failed to initialize playlist in Redis: %w", err)
 		}
 
 		// Track unique categories and their channel counts
 		categoriesMap := make(map[string]struct{})
 		categoryCountsMap := make(map[string]int)
 
+		// Write channels in batches
+		const batchSize = 500
+		batchPipe := c.rdb.Pipeline()
+		cmdsInBatch := 0
+
+		// execWithRetries accepts any Pipeliner (Pipeline implements it) so we can pass batchPipe, metaPipe, etc.
+		execWithRetries := func(p redis.Pipeliner) error {
+			var err error
+			maxAttempts := 3
+			for attempt := 1; attempt <= maxAttempts; attempt++ {
+				_, err = p.Exec()
+				if err == nil {
+					return nil
+				}
+				log.Printf("redis pipeline exec attempt %d/%d failed: %v", attempt, maxAttempts, err)
+				if attempt < maxAttempts {
+					time.Sleep(time.Duration(attempt) * time.Second)
+				}
+			}
+			return err
+		}
+
 		for i, channel := range playlist.Channels {
 			channelIndex := i + 1
 			channelKey := fmt.Sprintf("%s:%d", channelsKey, channelIndex)
 
-			pipe.HSet(channelKey, "id", channel.ID)
-			pipe.HSet(channelKey, "name", channel.Name)
-			pipe.HSet(channelKey, "url", channel.Url)
-			pipe.HSet(channelKey, "logo", channel.Logo)
-			pipe.HSet(channelKey, "category", channel.Category)
-			pipe.HSet(channelKey, "favorite", channel.Favorite)
-			pipe.HSet(channelKey, "enabled", channel.Enabled)
+			batchPipe.HSet(channelKey, "id", channel.ID)
+			batchPipe.HSet(channelKey, "name", channel.Name)
+			batchPipe.HSet(channelKey, "url", channel.Url)
+			batchPipe.HSet(channelKey, "logo", channel.Logo)
+			batchPipe.HSet(channelKey, "category", channel.Category)
+			batchPipe.HSet(channelKey, "favorite", channel.Favorite)
+			batchPipe.HSet(channelKey, "enabled", channel.Enabled)
 
-			pipe.SAdd(channelsKey, channelIndex)
+			batchPipe.SAdd(channelsKey, channelIndex)
 
-			// Add category to tracking map if it's not empty
 			if channel.Category != "" {
 				categoriesMap[channel.Category] = struct{}{}
 				categoryCountsMap[channel.Category]++
 
-				// Add channel to category-specific set for easy lookup
 				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, channel.Category)
-				pipe.SAdd(categoryChannelsKey, channelIndex)
+				batchPipe.SAdd(categoryChannelsKey, channelIndex)
+			}
+
+			cmdsInBatch++
+			if cmdsInBatch >= batchSize {
+				if err := execWithRetries(batchPipe); err != nil {
+					return fmt.Errorf("failed to store playlist channels in Redis: %w", err)
+				}
+				// reset the batch
+				batchPipe = c.rdb.Pipeline()
+				cmdsInBatch = 0
 			}
 		}
 
-		// Store all unique categories in a separate set
+		// Execute any remaining commands
+		if cmdsInBatch > 0 {
+			if err := execWithRetries(batchPipe); err != nil {
+				return fmt.Errorf("failed to store playlist channels in Redis: %w", err)
+			}
+		}
+
+		// Store categories and counts and add playlist name to guild set
+		finalPipe := c.rdb.Pipeline()
 		for category := range categoriesMap {
-			pipe.SAdd(categoriesKey, category)
+			finalPipe.SAdd(categoriesKey, category)
 		}
-
-		// Store category counts in a hash
 		for category, count := range categoryCountsMap {
-			pipe.HSet(categoryCountsKey, category, count)
+			finalPipe.HSet(categoryCountsKey, category, count)
 		}
-
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
-		pipe.SAdd(setKey, playlist.Name)
+		finalPipe.SAdd(setKey, playlist.Name)
 
-		_, err = pipe.Exec()
-		if err != nil {
-			return fmt.Errorf("failed to store playlist in Redis: %w", err)
+		if _, err := finalPipe.Exec(); err != nil {
+			return fmt.Errorf("failed to finalize playlist store in Redis: %w", err)
 		}
 
 		log.Printf("playlist '%s' stored successfully for guild %s with %d channels and %d categories",
