@@ -85,7 +85,7 @@ func downloadPlaylist(ctx context.Context, url string) (string, error) {
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
 
 	client := &http.Client{
-		Timeout: 120 * time.Second,
+		Timeout: 600 * time.Second,
 	}
 	resp, err := client.Do(req)
 	if err != nil {
