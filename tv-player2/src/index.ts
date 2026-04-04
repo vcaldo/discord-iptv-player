@@ -132,7 +132,7 @@ async function handlePlay(title: string, url: string, voiceChannelId: string) {
         }, signal);
 
         await playStream(output, streamer, {
-            type: "camera",
+            type: "go-live",
         }, signal);
 
         console.log(`[play] Stream ended for "${title}"`);
