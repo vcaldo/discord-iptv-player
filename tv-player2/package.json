@@ -22,6 +22,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@lng2004/node-datachannel",
+      "@seydx/node-av-linux-arm64",
+      "node-av",
       "sharp",
       "zeromq"
     ]
