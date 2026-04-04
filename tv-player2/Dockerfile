@@ -2,7 +2,7 @@ FROM node:24-bookworm-slim
 
 WORKDIR /app
 
-RUN apt update && apt install -y ffmpeg procps && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt install -y ffmpeg procps python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 STOPSIGNAL SIGTERM
 
