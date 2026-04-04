@@ -107,14 +107,6 @@ async function handlePlay(title: string, url: string, voiceChannelId: string) {
         }
     }
 
-    // Create stream (signals Go Live to Discord)
-    try {
-        await streamer.createStream();
-    } catch (err) {
-        console.error("[play] Failed to create stream:", err);
-        return;
-    }
-
     setWatchingStatus(title);
 
     // Prepare and play stream with the v6 API
