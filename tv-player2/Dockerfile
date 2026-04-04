@@ -12,6 +12,7 @@ COPY package.json ./
 
 RUN pnpm install
 
+COPY newrelic.js ./
 COPY src/ ./src/
 COPY tsconfig.json ./
 

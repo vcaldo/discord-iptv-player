@@ -1,6 +1,12 @@
-# TV Player
+# TV Player (⛔ End of Life)
 
-A Discord-based IPTV player component that allows streaming video content to Discord voice channels.
+> **This component has been replaced by [tv-player2](../tv-player2/).**
+>
+> No further updates will be made to this version. All new development and
+> deployments should use `tv-player2`, which uses `@dank074/discord-video-stream` v6
+> with a simplified architecture and New Relic monitoring.
+>
+> The `docker-compose.yaml` at the project root already points to `tv-player2`.
 
 ## Installation Steps
 

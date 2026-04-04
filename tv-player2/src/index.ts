@@ -1,3 +1,4 @@
+import newrelic from "newrelic";
 import { Client, CustomStatus, ActivityOptions } from "discord.js-selfbot-v13";
 import { Streamer, prepareStream, playStream, Encoders } from "@dank074/discord-video-stream";
 import { Redis } from "ioredis";
@@ -83,96 +84,118 @@ function setWatchingStatus(title: string) {
 
 // --- Streaming ---
 async function handlePlay(title: string, url: string, voiceChannelId: string) {
-    console.log(`[play] Playing "${title}" from ${url} in channel ${voiceChannelId}`);
-
-    if (!client.isReady()) {
-        console.warn("[play] Discord client not ready, skipping");
-        return;
-    }
-
-    // Stop current stream if any
-    await stopStream();
-    await sleep(500);
-
-    // Join voice channel if not already in one
-    if (!inVoiceChannel) {
-        console.log(`[play] Joining voice channel ${voiceChannelId}`);
+    return newrelic.startWebTransaction("handle-play", async () => {
         try {
-            await streamer.joinVoice(GUILD_ID, voiceChannelId);
-            inVoiceChannel = true;
-            console.log("[play] Joined voice channel");
+            newrelic.addCustomAttribute("videoTitle", title);
+            newrelic.addCustomAttribute("videoUrl", url);
+            newrelic.addCustomAttribute("voiceChannelId", voiceChannelId);
+
+            console.log(`[play] Playing "${title}" from ${url} in channel ${voiceChannelId}`);
+
+            if (!client.isReady()) {
+                console.warn("[play] Discord client not ready, skipping");
+                return;
+            }
+
+            // Stop current stream if any
+            await stopStream();
+            await sleep(500);
+
+            // Join voice channel if not already in one
+            if (!inVoiceChannel) {
+                console.log(`[play] Joining voice channel ${voiceChannelId}`);
+                try {
+                    await newrelic.startSegment("join-voice-channel", true, async () => {
+                        await streamer.joinVoice(GUILD_ID, voiceChannelId);
+                        inVoiceChannel = true;
+                        console.log("[play] Joined voice channel");
+                    });
+                } catch (err) {
+                    newrelic.noticeError(err as Error);
+                    console.error("[play] Failed to join voice channel:", err);
+                    return;
+                }
+            }
+
+            setWatchingStatus(title);
+
+            // Prepare and play stream with the v6 API
+            currentAbortController = new AbortController();
+            const { signal } = currentAbortController;
+
+            try {
+                await newrelic.startSegment("start-streaming", true, async () => {
+                    const { output } = prepareStream(url, {
+                        width: STREAM_WIDTH,
+                        height: STREAM_HEIGHT,
+                        frameRate: STREAM_FPS,
+                        videoCodec: STREAM_VIDEO_CODEC,
+                        bitrateVideo: STREAM_BITRATE_KBPS,
+                        bitrateVideoMax: STREAM_MAX_BITRATE_KBPS,
+                        bitrateAudio: 128,
+                        includeAudio: true,
+                        hardwareAcceleratedDecoding: STREAM_HW_ACCEL,
+                        minimizeLatency: true,
+                        encoder: Encoders.software({
+                            x264: { preset: "ultrafast", tune: "zerolatency" },
+                            x265: { preset: "ultrafast", tune: "zerolatency" },
+                        }),
+                    }, signal);
+
+                    await playStream(output, streamer, {
+                        type: "go-live",
+                    }, signal);
+                });
+
+                console.log(`[play] Stream ended for "${title}"`);
+            } catch (err) {
+                if (signal.aborted) {
+                    console.log(`[play] Stream aborted for "${title}"`);
+                } else {
+                    newrelic.noticeError(err as Error);
+                    console.error(`[play] Stream error for "${title}":`, err);
+                }
+            }
         } catch (err) {
-            console.error("[play] Failed to join voice channel:", err);
-            return;
+            newrelic.noticeError(err as Error);
+            console.error(`[play] Unexpected error for "${title}":`, err);
+            await handleStop();
         }
-    }
-
-    setWatchingStatus(title);
-
-    // Prepare and play stream with the v6 API
-    currentAbortController = new AbortController();
-    const { signal } = currentAbortController;
-
-    try {
-        const { output } = prepareStream(url, {
-            width: STREAM_WIDTH,
-            height: STREAM_HEIGHT,
-            frameRate: STREAM_FPS,
-            videoCodec: STREAM_VIDEO_CODEC,
-            bitrateVideo: STREAM_BITRATE_KBPS,
-            bitrateVideoMax: STREAM_MAX_BITRATE_KBPS,
-            bitrateAudio: 128,
-            includeAudio: true,
-            hardwareAcceleratedDecoding: STREAM_HW_ACCEL,
-            minimizeLatency: true,
-            encoder: Encoders.software({
-                x264: { preset: "ultrafast", tune: "zerolatency" },
-                x265: { preset: "ultrafast", tune: "zerolatency" },
-            }),
-        }, signal);
-
-        await playStream(output, streamer, {
-            type: "go-live",
-        }, signal);
-
-        console.log(`[play] Stream ended for "${title}"`);
-    } catch (err) {
-        if (signal.aborted) {
-            console.log(`[play] Stream aborted for "${title}"`);
-        } else {
-            console.error(`[play] Stream error for "${title}":`, err);
-        }
-    }
+    });
 }
 
 async function stopStream() {
-    if (currentAbortController) {
-        currentAbortController.abort();
-        currentAbortController = null;
-    }
+    return newrelic.startWebTransaction("handle-stop-stream", async () => {
+        if (currentAbortController) {
+            currentAbortController.abort();
+            currentAbortController = null;
+        }
 
-    try {
-        streamer.stopStream();
-    } catch {
-        // ignore if no active stream
-    }
+        try {
+            streamer.stopStream();
+        } catch {
+            // ignore if no active stream
+        }
 
-    setIdleStatus();
-    await sleep(100);
+        setIdleStatus();
+        await sleep(100);
+    });
 }
 
 async function handleStop() {
-    console.log("[stop] Stopping playback");
-    await stopStream();
+    return newrelic.startWebTransaction("handle-stop", async () => {
+        console.log("[stop] Stopping playback");
+        await stopStream();
 
-    try {
-        streamer.leaveVoice();
-    } catch {
-        // ignore
-    }
-    inVoiceChannel = false;
+        try {
+            streamer.leaveVoice();
+        } catch {
+            // ignore
+        }
+        inVoiceChannel = false;
 
-    console.log("[stop] Playback stopped");
+        console.log("[stop] Playback stopped");
+    });
 }
 
 // --- Redis ---
@@ -202,46 +225,57 @@ subClient.subscribe(REDIS_CHANNEL, (err) => {
 });
 
 subClient.on("message", async (_channel: string, raw: string) => {
-    let msg: RedisMessage;
-    try {
-        msg = JSON.parse(raw);
-    } catch {
-        console.error("[redis] Failed to parse message:", raw.substring(0, 100));
-        return;
-    }
+    await newrelic.startBackgroundTransaction("handle-message", "Redis", async () => {
+        let msg: RedisMessage;
+        try {
+            msg = JSON.parse(raw);
+        } catch {
+            console.error("[redis] Failed to parse message:", raw.substring(0, 100));
+            return;
+        }
 
-    if (!msg.command) {
-        console.error("[redis] Message missing command field");
-        return;
-    }
+        if (!msg.command) {
+            console.error("[redis] Message missing command field");
+            return;
+        }
 
-    console.log(`[redis] Received command: ${msg.command}`, {
-        title: msg.title,
-        url: msg.url?.substring(0, 50),
-        channel: msg.voice_channel_id,
-    });
+        newrelic.addCustomAttribute("command", msg.command);
+        if (msg.title) newrelic.addCustomAttribute("title", msg.title);
+        if (msg.url) newrelic.addCustomAttribute("url", msg.url);
 
-    switch (msg.command.toLowerCase()) {
-        case "play":
-            if (!msg.title || !msg.url) {
-                console.error("[play] Missing title or url");
-                return;
+        console.log(`[redis] Received command: ${msg.command}`, {
+            title: msg.title,
+            url: msg.url?.substring(0, 50),
+            channel: msg.voice_channel_id,
+        });
+
+        try {
+            switch (msg.command.toLowerCase()) {
+                case "play":
+                    if (!msg.title || !msg.url) {
+                        console.error("[play] Missing title or url");
+                        return;
+                    }
+                    await handlePlay(msg.title, msg.url, msg.voice_channel_id);
+                    break;
+
+                case "stop":
+                    await handleStop();
+                    break;
+
+                case "restart":
+                    console.log("[restart] Restarting...");
+                    process.exit(0);
+                    break;
+
+                default:
+                    console.warn(`[redis] Unknown command: ${msg.command}`);
             }
-            await handlePlay(msg.title, msg.url, msg.voice_channel_id);
-            break;
-
-        case "stop":
-            await handleStop();
-            break;
-
-        case "restart":
-            console.log("[restart] Restarting...");
-            process.exit(0);
-            break;
-
-        default:
-            console.warn(`[redis] Unknown command: ${msg.command}`);
-    }
+        } catch (err) {
+            newrelic.noticeError(err as Error);
+            console.error("[redis] Error handling message:", err);
+        }
+    });
 });
 
 // --- Shutdown ---
@@ -292,6 +326,7 @@ process.on("unhandledRejection", (reason) => {
 console.log("=== tv-player2 starting ===");
 console.log(`Stream: ${STREAM_WIDTH}x${STREAM_HEIGHT}@${STREAM_FPS}fps ${STREAM_VIDEO_CODEC} ${STREAM_BITRATE_KBPS}kbps`);
 console.log(`Redis: ${REDIS_HOST}:${REDIS_PORT} channel=${REDIS_CHANNEL}`);
+console.log("New Relic monitoring: Enabled");
 
 client.login(TOKEN).catch((err) => {
     console.error("[discord] Login failed:", err);
