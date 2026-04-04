@@ -11,16 +11,35 @@ services:
     depends_on:
       - redis
 
+  # tv-player:
+  #   build:
+  #     context: ./tv-player
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   stop_grace_period: 5s
+  #   stop_signal: SIGTERM
+  #   init: true
+  #   env_file:
+  #     - tv-player/.env
+  #   depends_on:
+  #     - redis
+  #     - remote-control
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
+
   tv-player:
     build:
-      context: ./tv-player
+      context: ./tv-player2
       dockerfile: Dockerfile
     restart: unless-stopped
     stop_grace_period: 5s
     stop_signal: SIGTERM
     init: true
     env_file:
-      - tv-player/.env
+      - tv-player2/.env
     depends_on:
       - redis
       - remote-control
@@ -45,20 +64,20 @@ services:
       timeout: 5s
       retries: 3
 
-  newrelic-infra:
-    container_name: newrelic-infra
-    build:
-      context: ./new-relic-infra
-      dockerfile: Dockerfile
-    cap_add:
-      - SYS_PTRACE
-    network_mode: bridge
-    pid: host
-    privileged: true
-    volumes:
-      - "/:/host:ro"
-      - "/var/run/docker.sock:/var/run/docker.sock"
-    restart: unless-stopped
+  # newrelic-infra:
+  #   container_name: newrelic-infra
+  #   build:
+  #     context: ./new-relic-infra
+  #     dockerfile: Dockerfile
+  #   cap_add:
+  #     - SYS_PTRACE
+  #   network_mode: bridge
+  #   pid: host
+  #   privileged: true
+  #   volumes:
+  #     - "/:/host:ro"
+  #     - "/var/run/docker.sock:/var/run/docker.sock"
+  #   restart: unless-stopped
 
 volumes:
   redis-data:
