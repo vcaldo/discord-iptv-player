@@ -45,7 +45,7 @@ The project consists of the following components:
 
 - Docker and Docker Compose (for containerized deployment)
 - Node.js 20+ and npm/bun (for local development)
-- Go 1.24+ (for local development of remote-control)
+- Go 1.26+ (for local development of remote-control)
 - Redis server (or use the included Docker container)
 - Discord bot token and permissions
 - Discord selfbot token (for streaming capability)

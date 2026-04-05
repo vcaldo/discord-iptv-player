@@ -50,7 +50,7 @@ services:
         max-file: "3"
 
   redis:
-    image: redis:7.4
+    image: redis:8.6
     container_name: discord-iptv-redis
     ports:
       - "6379:6379"
