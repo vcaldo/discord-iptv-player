@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/redis/go-redis/v9"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
@@ -31,20 +31,17 @@ func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Applicat
 
 	// Set up Redis client with timeout options
 	rdb := redis.NewClient(&redis.Options{
-		Addr:        cfg.RedisAddress,
-		Password:    cfg.RedisPassword,
-		DB:          cfg.RedisDB,
-		DialTimeout: 20 * time.Second,
-		ReadTimeout: 2 * time.Minute,
-		// Increase write timeout to allow large pipeline writes
-		WriteTimeout: 10 * time.Minute,
-		PoolSize:     20,
-		// Allow longer pool wait
-		PoolTimeout: 10 * time.Minute,
-		// Increase retries for transient network glitches
-		MaxRetries:  10,
-		MaxConnAge:  0,
-		IdleTimeout: 10 * time.Minute,
+		Addr:            cfg.RedisAddress,
+		Password:        cfg.RedisPassword,
+		DB:              cfg.RedisDB,
+		DialTimeout:     20 * time.Second,
+		ReadTimeout:     2 * time.Minute,
+		WriteTimeout:    10 * time.Minute,
+		PoolSize:        20,
+		PoolTimeout:     10 * time.Minute,
+		MaxRetries:      10,
+		ConnMaxLifetime: 0,
+		ConnMaxIdleTime: 10 * time.Minute,
 	})
 
 	var pong string
@@ -53,7 +50,7 @@ func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Applicat
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		segment := txn.StartSegment(fmt.Sprintf("redis:ping-attempt-%d", attempt))
-		pong, err = rdb.Ping().Result()
+		pong, err = rdb.Ping(ctx).Result()
 		segment.End()
 
 		if err == nil {
@@ -94,6 +91,7 @@ func (c *Client) instrumentOperation(operationName string, fn func() error) erro
 
 func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error {
 	return c.instrumentOperation("store-playlist", func() error {
+		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlist.Name)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 		categoriesKey := fmt.Sprintf("%s:categories", playlistKey)
@@ -102,27 +100,27 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		// causing network timeouts.
 		// Execute metadata/deletes first
 		metaPipe := c.rdb.Pipeline()
-		metaPipe.HSet(playlistKey, "name", playlist.Name)
-		metaPipe.HSet(playlistKey, "source", playlist.Source)
-		metaPipe.HSet(playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
-		metaPipe.HSet(playlistKey, "length", len(playlist.Channels))
+		metaPipe.HSet(ctx, playlistKey, "name", playlist.Name)
+		metaPipe.HSet(ctx, playlistKey, "source", playlist.Source)
+		metaPipe.HSet(ctx, playlistKey, "updated", playlist.Updated.Format(time.RFC3339))
+		metaPipe.HSet(ctx, playlistKey, "length", len(playlist.Channels))
 
 		// Delete existing channels, categories, and category counts before updating
-		metaPipe.Del(channelsKey)
-		metaPipe.Del(categoriesKey)
-		metaPipe.Del(categoryCountsKey)
+		metaPipe.Del(ctx, channelsKey)
+		metaPipe.Del(ctx, categoriesKey)
+		metaPipe.Del(ctx, categoryCountsKey)
 
 		// Delete existing category-to-channel mappings
-		existingCategories, err := c.rdb.SMembers(categoriesKey).Result()
+		existingCategories, err := c.rdb.SMembers(ctx, categoriesKey).Result()
 		if err == nil {
 			for _, category := range existingCategories {
 				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, category)
-				metaPipe.Del(categoryChannelsKey)
+				metaPipe.Del(ctx, categoryChannelsKey)
 			}
 		}
 
 		// Execute metadata deletions early so the heavy channel writes are separate
-		if _, err := metaPipe.Exec(); err != nil {
+		if _, err := metaPipe.Exec(ctx); err != nil {
 			return fmt.Errorf("failed to initialize playlist in Redis: %w", err)
 		}
 
@@ -140,7 +138,7 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			var err error
 			maxAttempts := 3
 			for attempt := 1; attempt <= maxAttempts; attempt++ {
-				_, err = p.Exec()
+				_, err = p.Exec(ctx)
 				if err == nil {
 					return nil
 				}
@@ -156,22 +154,22 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 			channelIndex := i + 1
 			channelKey := fmt.Sprintf("%s:%d", channelsKey, channelIndex)
 
-			batchPipe.HSet(channelKey, "id", channel.ID)
-			batchPipe.HSet(channelKey, "name", channel.Name)
-			batchPipe.HSet(channelKey, "url", channel.Url)
-			batchPipe.HSet(channelKey, "logo", channel.Logo)
-			batchPipe.HSet(channelKey, "category", channel.Category)
-			batchPipe.HSet(channelKey, "favorite", channel.Favorite)
-			batchPipe.HSet(channelKey, "enabled", channel.Enabled)
+			batchPipe.HSet(ctx, channelKey, "id", channel.ID)
+			batchPipe.HSet(ctx, channelKey, "name", channel.Name)
+			batchPipe.HSet(ctx, channelKey, "url", channel.Url)
+			batchPipe.HSet(ctx, channelKey, "logo", channel.Logo)
+			batchPipe.HSet(ctx, channelKey, "category", channel.Category)
+			batchPipe.HSet(ctx, channelKey, "favorite", channel.Favorite)
+			batchPipe.HSet(ctx, channelKey, "enabled", channel.Enabled)
 
-			batchPipe.SAdd(channelsKey, channelIndex)
+			batchPipe.SAdd(ctx, channelsKey, channelIndex)
 
 			if channel.Category != "" {
 				categoriesMap[channel.Category] = struct{}{}
 				categoryCountsMap[channel.Category]++
 
 				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, channel.Category)
-				batchPipe.SAdd(categoryChannelsKey, channelIndex)
+				batchPipe.SAdd(ctx, categoryChannelsKey, channelIndex)
 			}
 
 			cmdsInBatch++
@@ -195,15 +193,15 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 		// Store categories and counts and add playlist name to guild set
 		finalPipe := c.rdb.Pipeline()
 		for category := range categoriesMap {
-			finalPipe.SAdd(categoriesKey, category)
+			finalPipe.SAdd(ctx, categoriesKey, category)
 		}
 		for category, count := range categoryCountsMap {
-			finalPipe.HSet(categoryCountsKey, category, count)
+			finalPipe.HSet(ctx, categoryCountsKey, category, count)
 		}
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
-		finalPipe.SAdd(setKey, playlist.Name)
+		finalPipe.SAdd(ctx, setKey, playlist.Name)
 
-		if _, err := finalPipe.Exec(); err != nil {
+		if _, err := finalPipe.Exec(ctx); err != nil {
 			return fmt.Errorf("failed to finalize playlist store in Redis: %w", err)
 		}
 
@@ -216,10 +214,11 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, error) {
 	var playlist *models.Playlist
 	err := c.instrumentOperation("get-playlist", func() error {
+		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 
-		exists, err := c.rdb.Exists(playlistKey).Result()
+		exists, err := c.rdb.Exists(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
@@ -227,7 +226,7 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
 		}
 
-		playlistData, err := c.rdb.HGetAll(playlistKey).Result()
+		playlistData, err := c.rdb.HGetAll(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve playlist data: %w", err)
 		}
@@ -249,7 +248,7 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 		}
 
 		// Get channel indices from set
-		channelIndices, err := c.rdb.SMembers(channelsKey).Result()
+		channelIndices, err := c.rdb.SMembers(ctx, channelsKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve channel indices: %w", err)
 		}
@@ -259,7 +258,7 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
 
 			// Get channel data
-			channelData, err := c.rdb.HGetAll(channelKey).Result()
+			channelData, err := c.rdb.HGetAll(ctx, channelKey).Result()
 			if err != nil {
 				log.Printf("Warning: failed to retrieve channel data for index %s: %v", indexStr, err)
 				continue
@@ -315,9 +314,10 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 func (c *Client) GetPlaylistMetadata(guildID, playlistName string) (*models.Playlist, error) {
 	var playlist *models.Playlist
 	err := c.instrumentOperation("get-playlist-metadata", func() error {
+		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 
-		exists, err := c.rdb.Exists(playlistKey).Result()
+		exists, err := c.rdb.Exists(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
@@ -325,7 +325,7 @@ func (c *Client) GetPlaylistMetadata(guildID, playlistName string) (*models.Play
 			return fmt.Errorf("playlist '%s' not found for guild %s", playlistName, guildID)
 		}
 
-		playlistData, err := c.rdb.HGetAll(playlistKey).Result()
+		playlistData, err := c.rdb.HGetAll(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve playlist metadata: %w", err)
 		}
@@ -358,11 +358,12 @@ func (c *Client) ListPlaylists(guildID string) ([]string, error) {
 	var playlistNames []string
 
 	err := c.instrumentOperation("list-playlists", func() error {
+		ctx := context.Background()
 		key := fmt.Sprintf("guild:%s:playlists", guildID)
 
 		// Get all playlist names from the set
 		var err error
-		playlistNames, err = c.rdb.SMembers(key).Result()
+		playlistNames, err = c.rdb.SMembers(ctx, key).Result()
 		if err != nil {
 			return fmt.Errorf("failed to list playlists from Redis: %w", err)
 		}
@@ -375,6 +376,7 @@ func (c *Client) ListPlaylists(guildID string) ([]string, error) {
 
 func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 	return c.instrumentOperation("delete-playlist", func() error {
+		ctx := context.Background()
 		// Create keys
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
@@ -382,7 +384,7 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 		categoryCountsKey := fmt.Sprintf("%s:category-counts", playlistKey)
 
 		// Check if playlist exists
-		exists, err := c.rdb.Exists(playlistKey).Result()
+		exists, err := c.rdb.Exists(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
@@ -394,16 +396,16 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 		pipe := c.rdb.Pipeline()
 
 		// Get all categories to clean up their channel mappings
-		categories, err := c.rdb.SMembers(categoriesKey).Result()
+		categories, err := c.rdb.SMembers(ctx, categoriesKey).Result()
 		if err == nil {
 			for _, category := range categories {
 				categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, category)
-				pipe.Del(categoryChannelsKey)
+				pipe.Del(ctx, categoryChannelsKey)
 			}
 		}
 
 		// Get all channel indices before deleting
-		channelIndices, err := c.rdb.SMembers(channelsKey).Result()
+		channelIndices, err := c.rdb.SMembers(ctx, channelsKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve channel indices: %w", err)
 		}
@@ -411,27 +413,27 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 		// Delete each channel entry
 		for _, indexStr := range channelIndices {
 			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
-			pipe.Del(channelKey)
+			pipe.Del(ctx, channelKey)
 		}
 
 		// Delete the channels set
-		pipe.Del(channelsKey)
+		pipe.Del(ctx, channelsKey)
 
 		// Delete the categories set
-		pipe.Del(categoriesKey)
+		pipe.Del(ctx, categoriesKey)
 
 		// Delete the category counts hash
-		pipe.Del(categoryCountsKey)
+		pipe.Del(ctx, categoryCountsKey)
 
 		// Delete the playlist metadata
-		pipe.Del(playlistKey)
+		pipe.Del(ctx, playlistKey)
 
 		// Remove from the set of playlists
 		setKey := fmt.Sprintf("guild:%s:playlists", guildID)
-		pipe.SRem(setKey, playlistName)
+		pipe.SRem(ctx, setKey, playlistName)
 
 		// Execute all commands in the pipeline
-		_, err = pipe.Exec()
+		_, err = pipe.Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to delete playlist from Redis: %w", err)
 		}
@@ -445,10 +447,11 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 	var channel *models.TvChannel
 
 	err := c.instrumentOperation("get-channel", func() error {
+		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 
-		exists, err := c.rdb.Exists(playlistKey).Result()
+		exists, err := c.rdb.Exists(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
@@ -458,7 +461,7 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 
 		channelKey := fmt.Sprintf("%s:%s", channelsKey, channelID)
 
-		exists, err = c.rdb.Exists(channelKey).Result()
+		exists, err = c.rdb.Exists(ctx, channelKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if channel exists: %w", err)
 		}
@@ -466,7 +469,7 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 			return fmt.Errorf("channel with ID '%s' not found in playlist '%s'", channelID, playlistName)
 		}
 
-		channelData, err := c.rdb.HGetAll(channelKey).Result()
+		channelData, err := c.rdb.HGetAll(ctx, channelKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve channel data: %w", err)
 		}
@@ -492,13 +495,14 @@ func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*mo
 
 func (c *Client) RemoteControlCommand(command *models.RemoteControlCommand) error {
 	return c.instrumentOperation("remote-control-command", func() error {
+		ctx := context.Background()
 		jsonData, err := json.Marshal(command)
 		if err != nil {
 			return fmt.Errorf("failed to marshal remote control command: %w", err)
 		}
 
 		log.Printf("jsonData: %s", jsonData)
-		err = c.rdb.Publish(c.config.RedisPubSubChannel, jsonData).Err()
+		err = c.rdb.Publish(ctx, c.config.RedisPubSubChannel, jsonData).Err()
 		if err != nil {
 			return fmt.Errorf("failed to publish remote control command: %w", err)
 		}
@@ -512,10 +516,11 @@ func (c *Client) GetCategories(guildID string, playlistName string) ([]string, e
 	var categories []string
 
 	err := c.instrumentOperation("get-categories-from-set", func() error {
+		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		categoriesKey := fmt.Sprintf("%s:categories", playlistKey)
 
-		exists, err := c.rdb.Exists(playlistKey).Result()
+		exists, err := c.rdb.Exists(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
@@ -524,7 +529,7 @@ func (c *Client) GetCategories(guildID string, playlistName string) ([]string, e
 		}
 
 		// Directly get categories from the set we created
-		categories, err = c.rdb.SMembers(categoriesKey).Result()
+		categories, err = c.rdb.SMembers(ctx, categoriesKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve categories: %w", err)
 		}
@@ -542,12 +547,13 @@ func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) (
 	var channels []models.TvChannel
 
 	err := c.instrumentOperation("get-channels-by-category", func() error {
+		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		channelsKey := fmt.Sprintf("%s:channels", playlistKey)
 		categoryChannelsKey := fmt.Sprintf("%s:category:%s:channels", playlistKey, category)
 
 		// Check if playlist exists
-		exists, err := c.rdb.Exists(playlistKey).Result()
+		exists, err := c.rdb.Exists(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
@@ -556,7 +562,7 @@ func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) (
 		}
 
 		// Get channel indices for the specified category
-		channelIndices, err := c.rdb.SMembers(categoryChannelsKey).Result()
+		channelIndices, err := c.rdb.SMembers(ctx, categoryChannelsKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve channel indices for category '%s': %w", category, err)
 		}
@@ -570,15 +576,15 @@ func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) (
 		// Retrieve each channel
 		// Use a Redis pipeline to batch HGetAll commands
 		pipe := c.rdb.Pipeline()
-		cmds := make([]*redis.StringStringMapCmd, len(channelIndices))
+		cmds := make([]*redis.MapStringStringCmd, len(channelIndices))
 
 		for i, indexStr := range channelIndices {
 			channelKey := fmt.Sprintf("%s:%s", channelsKey, indexStr)
-			cmds[i] = pipe.HGetAll(channelKey)
+			cmds[i] = pipe.HGetAll(ctx, channelKey)
 		}
 
 		// Execute the pipeline
-		_, err = pipe.Exec()
+		_, err = pipe.Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to execute Redis pipeline: %w", err)
 		}
@@ -629,11 +635,12 @@ func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int,
 	var categoryStats map[string]int
 
 	err := c.instrumentOperation("get-category-stats", func() error {
+		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlistName)
 		categoryCountsKey := fmt.Sprintf("%s:category-counts", playlistKey)
 
 		// Check if playlist exists
-		exists, err := c.rdb.Exists(playlistKey).Result()
+		exists, err := c.rdb.Exists(ctx, playlistKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to check if playlist exists: %w", err)
 		}
@@ -642,7 +649,7 @@ func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int,
 		}
 
 		// Get all category counts from the hash
-		categoryCountsMap, err := c.rdb.HGetAll(categoryCountsKey).Result()
+		categoryCountsMap, err := c.rdb.HGetAll(ctx, categoryCountsKey).Result()
 		if err != nil {
 			return fmt.Errorf("failed to retrieve category counts: %w", err)
 		}
@@ -671,7 +678,7 @@ func (c *Client) GetID(key string) string {
 	var id string
 	err := c.instrumentOperation("get-id", func() error {
 		var err error
-		id, err = c.rdb.Get(key).Result()
+		id, err = c.rdb.Get(context.Background(), key).Result()
 		if err != nil {
 			return err
 		}
@@ -691,7 +698,7 @@ func (c *Client) SetCurrentPlaylist(guildID, playlistName string) error {
 	return c.instrumentOperation("set-current-playlist", func() error {
 		key := fmt.Sprintf("guild:%s:current_playlist", guildID)
 
-		err := c.rdb.Set(key, playlistName, 0).Err()
+		err := c.rdb.Set(context.Background(), key, playlistName, 0).Err()
 		if err != nil {
 			return fmt.Errorf("failed to set current playlist: %w", err)
 		}
@@ -709,7 +716,7 @@ func (c *Client) GetCurrentPlaylist(guildID string) (string, error) {
 		key := fmt.Sprintf("guild:%s:current_playlist", guildID)
 
 		var err error
-		playlistName, err = c.rdb.Get(key).Result()
+		playlistName, err = c.rdb.Get(context.Background(), key).Result()
 		if err != nil {
 			return fmt.Errorf("failed to get current playlist: %w", err)
 		}
@@ -734,7 +741,7 @@ func (c *Client) Get(key string) (string, error) {
 	var value string
 	err := c.instrumentOperation("get", func() error {
 		var err error
-		value, err = c.rdb.Get(key).Result()
+		value, err = c.rdb.Get(context.Background(), key).Result()
 		if err != nil {
 			return err
 		}
@@ -746,14 +753,14 @@ func (c *Client) Get(key string) (string, error) {
 // Set stores a key-value pair in Redis with optional expiration
 func (c *Client) Set(key, value string, expiration time.Duration) error {
 	return c.instrumentOperation("set", func() error {
-		return c.rdb.Set(key, value, expiration).Err()
+		return c.rdb.Set(context.Background(), key, value, expiration).Err()
 	})
 }
 
 // Del deletes one or more keys from Redis
 func (c *Client) Del(keys ...string) error {
 	return c.instrumentOperation("del", func() error {
-		return c.rdb.Del(keys...).Err()
+		return c.rdb.Del(context.Background(), keys...).Err()
 	})
 }
 
@@ -762,7 +769,7 @@ func (c *Client) Keys(pattern string) ([]string, error) {
 	var keys []string
 	err := c.instrumentOperation("keys", func() error {
 		var err error
-		keys, err = c.rdb.Keys(pattern).Result()
+		keys, err = c.rdb.Keys(context.Background(), pattern).Result()
 		if err != nil {
 			return err
 		}

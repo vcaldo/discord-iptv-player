@@ -6,7 +6,7 @@ A microservice-based system that enables streaming video content (IPTV, YouTube,
 
 The project consists of the following components:
 
-- **TV Player**: Core service that handles video streaming to Discord voice channels
+- **TV Player** (`tv-player2/`): Core service that handles video streaming to Discord voice channels (uses discord-video-stream v6)
 - **Remote Control**: Discord bot that provides commands for controlling playback
 - **Redis**: Message broker for communication between components
 - **New Relic Monitoring**: Optional infrastructure for performance monitoring
@@ -45,7 +45,7 @@ The project consists of the following components:
 
 - Docker and Docker Compose (for containerized deployment)
 - Node.js 20+ and npm/bun (for local development)
-- Go 1.24+ (for local development of remote-control)
+- Go 1.26+ (for local development of remote-control)
 - Redis server (or use the included Docker container)
 - Discord bot token and permissions
 - Discord selfbot token (for streaming capability)
@@ -62,7 +62,7 @@ The project consists of the following components:
    - Create environment files for both services:
      ```bash
      # For TV Player
-     cp tv-player/.env.example tv-player/.env
+     cp tv-player2/.env.example tv-player2/.env
 
      # For Remote Control
      cp remote-control/env.example remote-control/.env
@@ -84,9 +84,9 @@ The project consists of the following components:
 
 ### TV Player Component
 
-1. Navigate to the tv-player directory:
+1. Navigate to the tv-player2 directory:
    ```bash
-   cd tv-player
+   cd tv-player2
    ```
 
 2. Install dependencies:
@@ -102,17 +102,13 @@ The project consists of the following components:
    ```
 
 4. Configure the environment:
-   - Copy `.env.example` to `.env` for development
-   - Or copy `.env.production.example` to `.env.production` for production use
+   - Copy `.env.example` to `.env`
    - Fill in the required variables
+   - Uncomment one of the stream quality presets (high/mid/low) or set custom values
 
 5. Start the application:
    ```bash
-   # Development mode
    npm run start
-
-   # Production mode
-   NODE_ENV=production npm run start
    ```
 
 ### Remote Control Component
