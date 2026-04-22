@@ -42,6 +42,23 @@ const streamer = new Streamer(client);
 let currentAbortController: AbortController | null = null;
 let inVoiceChannel = false;
 
+// Metrics state — periodically flushed to Redis at key `tv_player:state` for the
+// nri-flex monitor. All counters are monotonically increasing since process start.
+const startedAt = Date.now() / 1000;
+let currentTitle = "";
+let currentUrl = "";
+let currentVoiceChannelId = "";
+let streamStartedAt = 0; // epoch seconds while streaming, 0 otherwise
+let totalPlays = 0;
+let totalStops = 0;
+let totalErrors = 0;
+let lastCommandAt = 0;
+let lastCommand = "";
+let lastError = "";
+
+const STATE_KEY = "tv_player:state";
+const STATE_TTL_SEC = 30; // collector reads at most every 30s; expire if we crash
+
 // --- Discord ---
 client.on("ready", async () => {
     console.log(`[discord] Logged in as ${client.user?.tag}`);
@@ -91,6 +108,13 @@ async function handlePlay(title: string, url: string, voiceChannelId: string) {
             newrelic.addCustomAttribute("voiceChannelId", voiceChannelId);
 
             console.log(`[play] Playing "${title}" from ${url} in channel ${voiceChannelId}`);
+
+            totalPlays += 1;
+            currentTitle = title;
+            currentUrl = url;
+            currentVoiceChannelId = voiceChannelId;
+            streamStartedAt = Date.now() / 1000;
+            void writeState();
 
             if (!client.isReady()) {
                 console.warn("[play] Discord client not ready, skipping");
@@ -153,11 +177,15 @@ async function handlePlay(title: string, url: string, voiceChannelId: string) {
                     console.log(`[play] Stream aborted for "${title}"`);
                 } else {
                     newrelic.noticeError(err as Error);
+                    totalErrors += 1;
+                    lastError = (err as Error)?.message ?? String(err);
                     console.error(`[play] Stream error for "${title}":`, err);
                 }
             }
         } catch (err) {
             newrelic.noticeError(err as Error);
+            totalErrors += 1;
+            lastError = (err as Error)?.message ?? String(err);
             console.error(`[play] Unexpected error for "${title}":`, err);
             await handleStop();
         }
@@ -185,6 +213,7 @@ async function stopStream() {
 async function handleStop() {
     return newrelic.startWebTransaction("handle-stop", async () => {
         console.log("[stop] Stopping playback");
+        totalStops += 1;
         await stopStream();
 
         try {
@@ -193,6 +222,11 @@ async function handleStop() {
             // ignore
         }
         inVoiceChannel = false;
+        currentTitle = "";
+        currentUrl = "";
+        currentVoiceChannelId = "";
+        streamStartedAt = 0;
+        void writeState();
 
         console.log("[stop] Playback stopped");
     });
@@ -238,6 +272,10 @@ subClient.on("message", async (_channel: string, raw: string) => {
             console.error("[redis] Message missing command field");
             return;
         }
+
+        lastCommand = msg.command;
+        lastCommandAt = Date.now() / 1000;
+        void writeState();
 
         newrelic.addCustomAttribute("command", msg.command);
         if (msg.title) newrelic.addCustomAttribute("title", msg.title);
@@ -327,6 +365,50 @@ console.log("=== tv-player2 starting ===");
 console.log(`Stream: ${STREAM_WIDTH}x${STREAM_HEIGHT}@${STREAM_FPS}fps ${STREAM_VIDEO_CODEC} ${STREAM_BITRATE_KBPS}kbps`);
 console.log(`Redis: ${REDIS_HOST}:${REDIS_PORT} channel=${REDIS_CHANNEL}`);
 console.log("New Relic monitoring: Enabled");
+
+// Periodic state writer for the nri-flex collector. Writes a JSON snapshot to
+// Redis at `tv_player:state` with TTL so a crashed process doesn't leave stale
+// data lying around forever.
+async function writeState(): Promise<void> {
+    try {
+        const state = {
+            timestamp: Date.now() / 1000,
+            start_time: startedAt,
+            uptime_sec: Math.max(0, Date.now() / 1000 - startedAt),
+            bot_ready: client.isReady(),
+            bot_user_id: client.user?.id ?? "",
+            bot_user_tag: client.user?.tag ?? "",
+            in_voice_channel: inVoiceChannel,
+            voice_channel_id: currentVoiceChannelId,
+            current_title: currentTitle,
+            current_url: currentUrl.substring(0, 256),
+            stream_active: streamStartedAt > 0,
+            stream_started_at: streamStartedAt,
+            stream_uptime_sec: streamStartedAt > 0 ? Math.max(0, Date.now() / 1000 - streamStartedAt) : 0,
+            stream_width: STREAM_WIDTH,
+            stream_height: STREAM_HEIGHT,
+            stream_fps: STREAM_FPS,
+            stream_codec: STREAM_VIDEO_CODEC,
+            stream_bitrate_kbps: STREAM_BITRATE_KBPS,
+            stream_hw_accel: STREAM_HW_ACCEL,
+            total_plays: totalPlays,
+            total_stops: totalStops,
+            total_errors: totalErrors,
+            last_command: lastCommand,
+            last_command_at: lastCommandAt,
+            last_error: lastError.substring(0, 256),
+        };
+        await pubClient.set(STATE_KEY, JSON.stringify(state), "EX", STATE_TTL_SEC);
+    } catch (err) {
+        // Never crash the bot just because metrics write failed.
+        console.error("[metrics] Failed to write state to Redis:", err);
+    }
+}
+
+const stateInterval = setInterval(() => {
+    void writeState();
+}, 5000);
+stateInterval.unref?.();
 
 client.login(TOKEN).catch((err) => {
     console.error("[discord] Login failed:", err);

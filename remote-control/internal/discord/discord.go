@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -19,6 +20,15 @@ type Bot struct {
 	session *discordgo.Session
 	config  *config.Config
 	redis   *redis.Client
+
+	// Metrics counters consumed by the periodic state writer so the nri-flex
+	// monitor can publish them as ValdiviaIptvRemoteControl events.
+	startTime          time.Time
+	commandsHandled    atomic.Int64
+	autocompletesServed atomic.Int64
+	commandErrors      atomic.Int64
+	lastCommandAt      atomic.Int64 // unix seconds
+	lastCommandName    atomic.Value // string
 }
 
 func NewBot(cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application) (*Bot, error) {
@@ -40,9 +50,10 @@ func NewBot(cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Appli
 	time.Sleep(100 * time.Millisecond)
 
 	return &Bot{
-		session: session,
-		config:  cfg,
-		redis:   redisClient,
+		session:   session,
+		config:    cfg,
+		redis:     redisClient,
+		startTime: time.Now(),
 	}, nil
 }
 
@@ -54,18 +65,25 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 
 	b.session.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if i.Type == discordgo.InteractionApplicationCommand {
+			cmdName := i.ApplicationCommandData().Name
+			b.commandsHandled.Add(1)
+			b.lastCommandAt.Store(time.Now().Unix())
+			b.lastCommandName.Store(cmdName)
+
 			cmdTxn := nrApp.StartTransaction("discord:incoming-command")
-			cmdTxn.AddAttribute("command_type", i.ApplicationCommandData().Name)
+			cmdTxn.AddAttribute("command_type", cmdName)
 
 			cmdCtx := newrelic.NewContext(ctx, cmdTxn)
 			err := b.handleApplicationCommand(cmdCtx, s, i, config, nrApp)
 			if err != nil {
+				b.commandErrors.Add(1)
 				cmdTxn.NoticeError(err)
 				log.Printf("error handling command: %v", err)
 			}
 
 			cmdTxn.End()
 		} else if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+			b.autocompletesServed.Add(1)
 			autocompleteTxn := nrApp.StartTransaction("discord:autocomplete")
 			autocompleteCtx := newrelic.NewContext(ctx, autocompleteTxn)
 
@@ -96,6 +114,10 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 
 	// Start periodic task manager
 	go b.startPeriodicTaskManager(ctx, config, nrApp)
+
+	// Publish a state snapshot to Redis every few seconds for the
+	// nri-flex monitor to scrape.
+	go b.runStateWriter(ctx)
 
 	<-ctx.Done()
 
