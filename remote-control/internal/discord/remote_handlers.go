@@ -295,47 +295,39 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 		return err
 	}
 	parseSegment.End()
-	// Get the playlist
-	getPlaylistSegment := txn.StartSegment("get_playlist")
-	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, b.getCurrentPlaylist(config))
+	// Search channels through the selected storage engine.
+	searchSegment := txn.StartSegment("search_channels")
+	channels, err := b.redis.SearchChannels(config.DiscordGuildID, b.getCurrentPlaylist(config), searchQuery)
 	if err != nil {
-		getPlaylistSegment.End()
+		searchSegment.End()
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
-			Content: fmt.Sprintf("error retrieving playlist: %v", err),
+			Content: fmt.Sprintf("error searching channels: %v", err),
 		})
 		return msgErr
 	}
-	getPlaylistSegment.End()
 
-	// Search for channels
-	searchSegment := txn.StartSegment("search_channels")
 	var matchingChannels []string
-	searchQueryLower := strings.ToLower(searchQuery)
 
 	// Find the maximum length of channel ID for proper alignment
 	prepareSegment := txn.StartSegment("max_id_length")
 	maxIDLength := 0
 	maxCategoryLength := 0
-	for _, channel := range playlist.Channels {
-		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
-			if len(channel.ID) > maxIDLength {
-				maxIDLength = len(channel.ID)
-			}
-			if len(channel.Category) > maxCategoryLength {
-				maxCategoryLength = len(channel.Category)
-			}
+	for _, channel := range channels {
+		if len(channel.ID) > maxIDLength {
+			maxIDLength = len(channel.ID)
+		}
+		if len(channel.Category) > maxCategoryLength {
+			maxCategoryLength = len(channel.Category)
 		}
 	}
 	prepareSegment.End()
 
 	formatString := fmt.Sprintf("%%-%ds - %%-%ds - %%s", maxIDLength, maxCategoryLength)
 
-	for _, channel := range playlist.Channels {
-		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
-			matchingChannels = append(matchingChannels, fmt.Sprintf(formatString,
-				channel.ID, channel.Category, channel.Name))
-		}
+	for _, channel := range channels {
+		matchingChannels = append(matchingChannels, fmt.Sprintf(formatString,
+			channel.ID, channel.Category, channel.Name))
 	}
 	searchSegment.End()
 
@@ -420,7 +412,7 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
-	// Get categories directly from Redis
+	// Get categories directly from the selected storage engine.
 	getSegment := txn.StartSegment("get_categories")
 	categories, err := b.redis.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
 	if err != nil {
@@ -731,7 +723,7 @@ func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i
 		return err
 	}
 
-	// Set the current playlist in Redis
+	// Set the current playlist in the selected storage engine.
 	err = b.redis.SetCurrentPlaylist(config.DiscordGuildID, playlistName)
 	if err != nil {
 		txn.NoticeError(err)
@@ -812,7 +804,7 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	currentPlaylist := b.getCurrentPlaylist(config)
 	txn.AddAttribute("playlist_name", currentPlaylist)
 
-	// Get the playlist from Redis
+	// Get the playlist from the selected storage engine.
 	getPlaylistSegment := txn.StartSegment("get_playlist")
 	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, currentPlaylist)
 	if err != nil {
@@ -1041,7 +1033,7 @@ func (b *Bot) handleCsvCommand(ctx context.Context, s *discordgo.Session, i *dis
 	currentPlaylist := b.getCurrentPlaylist(config)
 	txn.AddAttribute("playlist_name", currentPlaylist)
 
-	// Get the playlist from Redis
+	// Get the playlist from the selected storage engine.
 	getPlaylistSegment := txn.StartSegment("get_playlist")
 	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, currentPlaylist)
 	if err != nil {

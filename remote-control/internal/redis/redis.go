@@ -6,18 +6,22 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/newrelic/go-agent/v3/newrelic"
+	"github.com/redis/go-redis/v9"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
 )
 
 type Client struct {
-	rdb    *redis.Client
-	config *config.Config
-	nrApp  *newrelic.Application
+	rdb           *redis.Client
+	pg            *pgxpool.Pool
+	config        *config.Config
+	nrApp         *newrelic.Application
+	storageEngine string
 }
 
 func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Application) (*Client, error) {
@@ -70,15 +74,43 @@ func NewClient(ctx context.Context, cfg *config.Config, nrApp *newrelic.Applicat
 
 	log.Printf("successfully connected to Redis: %s", pong)
 
+	storageEngine, err := cfg.NormalizedStorageEngine()
+	if err != nil {
+		return nil, err
+	}
+
+	var pgPool *pgxpool.Pool
+	if storageEngine == config.StorageEnginePostgres {
+		pgPool, err = newPostgresPool(ctx, cfg)
+		if err != nil {
+			txn.NoticeError(err)
+			return nil, err
+		}
+		if err := migratePostgres(ctx, pgPool); err != nil {
+			pgPool.Close()
+			txn.NoticeError(err)
+			return nil, err
+		}
+		log.Printf("successfully connected to PostgreSQL storage")
+	}
+
+	log.Printf("using %s for persistent storage", storageEngine)
+
 	return &Client{
-		rdb:    rdb,
-		config: cfg,
-		nrApp:  nrApp,
+		rdb:           rdb,
+		pg:            pgPool,
+		config:        cfg,
+		nrApp:         nrApp,
+		storageEngine: storageEngine,
 	}, nil
 }
 
 func (c *Client) instrumentOperation(operationName string, fn func() error) error {
-	txn := c.nrApp.StartTransaction("redis:" + operationName)
+	prefix := "redis"
+	if strings.HasPrefix(operationName, "postgres-") {
+		prefix = "postgres"
+	}
+	txn := c.nrApp.StartTransaction(prefix + ":" + operationName)
 	defer txn.End()
 
 	err := fn()
@@ -89,9 +121,16 @@ func (c *Client) instrumentOperation(operationName string, fn func() error) erro
 	return err
 }
 
+func (c *Client) usePostgres() bool {
+	return c.storageEngine == config.StorageEnginePostgres
+}
+
 // SetEx writes a string value at key with a TTL. Used by the metrics state
-// writer so that a crashed process doesn't leave stale data sitting in Redis.
+// writer so that a crashed process doesn't leave stale data sitting in storage.
 func (c *Client) SetEx(ctx context.Context, key, value string, ttl time.Duration) error {
+	if c.usePostgres() {
+		return c.pgSet(ctx, key, value, ttl)
+	}
 	return c.rdb.Set(ctx, key, value, ttl).Err()
 }
 
@@ -102,6 +141,9 @@ func (c *Client) PingRaw(ctx context.Context) (string, error) {
 }
 
 func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error {
+	if c.usePostgres() {
+		return c.pgStorePlaylist(playlist, guildID)
+	}
 	return c.instrumentOperation("store-playlist", func() error {
 		ctx := context.Background()
 		playlistKey := fmt.Sprintf("guild:%s:playlist:%s", guildID, playlist.Name)
@@ -224,6 +266,9 @@ func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error 
 }
 
 func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, error) {
+	if c.usePostgres() {
+		return c.pgGetPlaylist(guildID, playlistName)
+	}
 	var playlist *models.Playlist
 	err := c.instrumentOperation("get-playlist", func() error {
 		ctx := context.Background()
@@ -324,6 +369,9 @@ func (c *Client) GetPlaylist(guildID, playlistName string) (*models.Playlist, er
 }
 
 func (c *Client) GetPlaylistMetadata(guildID, playlistName string) (*models.Playlist, error) {
+	if c.usePostgres() {
+		return c.pgGetPlaylistMetadata(guildID, playlistName)
+	}
 	var playlist *models.Playlist
 	err := c.instrumentOperation("get-playlist-metadata", func() error {
 		ctx := context.Background()
@@ -367,6 +415,9 @@ func (c *Client) GetPlaylistMetadata(guildID, playlistName string) (*models.Play
 }
 
 func (c *Client) ListPlaylists(guildID string) ([]string, error) {
+	if c.usePostgres() {
+		return c.pgListPlaylists(guildID)
+	}
 	var playlistNames []string
 
 	err := c.instrumentOperation("list-playlists", func() error {
@@ -387,6 +438,9 @@ func (c *Client) ListPlaylists(guildID string) ([]string, error) {
 }
 
 func (c *Client) DeletePlaylist(guildID, playlistName string) error {
+	if c.usePostgres() {
+		return c.pgDeletePlaylist(guildID, playlistName)
+	}
 	return c.instrumentOperation("delete-playlist", func() error {
 		ctx := context.Background()
 		// Create keys
@@ -456,6 +510,9 @@ func (c *Client) DeletePlaylist(guildID, playlistName string) error {
 }
 
 func (c *Client) GetChannel(guildID, playlistName string, channelID string) (*models.TvChannel, error) {
+	if c.usePostgres() {
+		return c.pgGetChannel(guildID, playlistName, channelID)
+	}
 	var channel *models.TvChannel
 
 	err := c.instrumentOperation("get-channel", func() error {
@@ -525,6 +582,9 @@ func (c *Client) RemoteControlCommand(command *models.RemoteControlCommand) erro
 }
 
 func (c *Client) GetCategories(guildID string, playlistName string) ([]string, error) {
+	if c.usePostgres() {
+		return c.pgGetCategories(guildID, playlistName)
+	}
 	var categories []string
 
 	err := c.instrumentOperation("get-categories-from-set", func() error {
@@ -556,6 +616,9 @@ func (c *Client) GetCategories(guildID string, playlistName string) ([]string, e
 }
 
 func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) ([]models.TvChannel, error) {
+	if c.usePostgres() {
+		return c.pgGetChannelsByCategory(guildID, playlistName, category)
+	}
 	var channels []models.TvChannel
 
 	err := c.instrumentOperation("get-channels-by-category", func() error {
@@ -644,6 +707,9 @@ func (c *Client) GetChannelsByCategory(guildID, playlistName, category string) (
 }
 
 func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int, error) {
+	if c.usePostgres() {
+		return c.pgGetCategoryStats(guildID, playlistName)
+	}
 	var categoryStats map[string]int
 
 	err := c.instrumentOperation("get-category-stats", func() error {
@@ -687,6 +753,14 @@ func (c *Client) GetCategoryStats(guildID, playlistName string) (map[string]int,
 }
 
 func (c *Client) GetID(key string) string {
+	if c.usePostgres() {
+		id, err := c.pgGet(context.Background(), key)
+		if err != nil {
+			log.Printf("failed to get ID for key '%s': %v", key, err)
+			return ""
+		}
+		return id
+	}
 	var id string
 	err := c.instrumentOperation("get-id", func() error {
 		var err error
@@ -707,6 +781,9 @@ func (c *Client) GetID(key string) string {
 
 // SetCurrentPlaylist sets the current playlist for a guild
 func (c *Client) SetCurrentPlaylist(guildID, playlistName string) error {
+	if c.usePostgres() {
+		return c.pgSetCurrentPlaylist(guildID, playlistName)
+	}
 	return c.instrumentOperation("set-current-playlist", func() error {
 		key := fmt.Sprintf("guild:%s:current_playlist", guildID)
 
@@ -722,6 +799,9 @@ func (c *Client) SetCurrentPlaylist(guildID, playlistName string) error {
 
 // GetCurrentPlaylist gets the current playlist for a guild
 func (c *Client) GetCurrentPlaylist(guildID string) (string, error) {
+	if c.usePostgres() {
+		return c.pgGetCurrentPlaylist(guildID)
+	}
 	var playlistName string
 
 	err := c.instrumentOperation("get-current-playlist", func() error {
@@ -745,11 +825,37 @@ func (c *Client) GetCurrentPlaylist(guildID string) (string, error) {
 }
 
 func (c *Client) Close() error {
+	if c.pg != nil {
+		c.pg.Close()
+	}
 	return c.rdb.Close()
 }
 
-// Get retrieves a value by key from Redis
+func (c *Client) SearchChannels(guildID, playlistName, query string) ([]models.TvChannel, error) {
+	if c.usePostgres() {
+		return c.pgSearchChannels(guildID, playlistName, query)
+	}
+
+	playlist, err := c.GetPlaylist(guildID, playlistName)
+	if err != nil {
+		return nil, err
+	}
+
+	searchQueryLower := strings.ToLower(query)
+	matchingChannels := make([]models.TvChannel, 0)
+	for _, channel := range playlist.Channels {
+		if strings.Contains(strings.ToLower(channel.Name), searchQueryLower) {
+			matchingChannels = append(matchingChannels, channel)
+		}
+	}
+	return matchingChannels, nil
+}
+
+// Get retrieves a value by key from the selected storage engine.
 func (c *Client) Get(key string) (string, error) {
+	if c.usePostgres() {
+		return c.pgGet(context.Background(), key)
+	}
 	var value string
 	err := c.instrumentOperation("get", func() error {
 		var err error
@@ -762,22 +868,31 @@ func (c *Client) Get(key string) (string, error) {
 	return value, err
 }
 
-// Set stores a key-value pair in Redis with optional expiration
+// Set stores a key-value pair in the selected storage engine with optional expiration.
 func (c *Client) Set(key, value string, expiration time.Duration) error {
+	if c.usePostgres() {
+		return c.pgSet(context.Background(), key, value, expiration)
+	}
 	return c.instrumentOperation("set", func() error {
 		return c.rdb.Set(context.Background(), key, value, expiration).Err()
 	})
 }
 
-// Del deletes one or more keys from Redis
+// Del deletes one or more keys from the selected storage engine.
 func (c *Client) Del(keys ...string) error {
+	if c.usePostgres() {
+		return c.pgDel(context.Background(), keys...)
+	}
 	return c.instrumentOperation("del", func() error {
 		return c.rdb.Del(context.Background(), keys...).Err()
 	})
 }
 
-// Keys finds all keys matching a pattern
+// Keys finds all keys matching a pattern in the selected storage engine.
 func (c *Client) Keys(pattern string) ([]string, error) {
+	if c.usePostgres() {
+		return c.pgKeys(context.Background(), pattern)
+	}
 	var keys []string
 	err := c.instrumentOperation("keys", func() error {
 		var err error
