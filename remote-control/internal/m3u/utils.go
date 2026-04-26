@@ -9,11 +9,11 @@ import (
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
-	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/storage"
 )
 
 // InitializePlaylists loads and initializes multiple playlists from YAML configuration
-func InitializePlaylists(ctx context.Context, cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application) error {
+func InitializePlaylists(ctx context.Context, cfg *config.Config, storageClient *storage.Client, nrApp *newrelic.Application) error {
 	txn := nrApp.StartTransaction("m3u:initialize-playlists")
 	defer txn.End()
 	// Load playlist configurations
@@ -39,7 +39,7 @@ func InitializePlaylists(ctx context.Context, cfg *config.Config, redisClient *r
 
 		log.Printf("initializing playlist: %s", playlistConfig.Name)
 
-		if err := initializeSinglePlaylist(ctx, cfg, redisClient, nrApp, playlistConfig); err != nil {
+		if err := initializeSinglePlaylist(ctx, cfg, storageClient, nrApp, playlistConfig); err != nil {
 			log.Printf("error initializing playlist '%s': %v", playlistConfig.Name, err)
 			txn.NoticeError(err)
 			// Continue with other playlists instead of failing completely
@@ -48,11 +48,11 @@ func InitializePlaylists(ctx context.Context, cfg *config.Config, redisClient *r
 	}
 
 	// Set default playlist if none is currently set
-	currentPlaylist, err := redisClient.GetCurrentPlaylist(cfg.DiscordGuildID)
+	currentPlaylist, err := storageClient.GetCurrentPlaylist(cfg.DiscordGuildID)
 	if err != nil || currentPlaylist == "" {
 		if defaultPlaylist := findDefaultPlaylist(playlistsConfig); defaultPlaylist != "" {
 			log.Printf("setting default playlist to: %s", defaultPlaylist)
-			if err := redisClient.SetCurrentPlaylist(cfg.DiscordGuildID, defaultPlaylist); err != nil {
+			if err := storageClient.SetCurrentPlaylist(cfg.DiscordGuildID, defaultPlaylist); err != nil {
 				log.Printf("warning: failed to set default playlist: %v", err)
 				txn.NoticeError(err)
 			}
@@ -64,13 +64,13 @@ func InitializePlaylists(ctx context.Context, cfg *config.Config, redisClient *r
 }
 
 // initializeSinglePlaylist initializes a single playlist from its configuration
-func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application, playlistConfig models.PlaylistConfig) error {
+func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, storageClient *storage.Client, nrApp *newrelic.Application, playlistConfig models.PlaylistConfig) error {
 	txn := nrApp.StartTransaction("m3u:initialize-single-playlist")
 	defer txn.End()
 
 	txn.AddAttribute("playlist_name", playlistConfig.Name)
 	segment := txn.StartSegment("check-playlist-metadata-in-storage")
-	existingPlaylist, err := redisClient.GetPlaylistMetadata(cfg.DiscordGuildID, playlistConfig.Name)
+	existingPlaylist, err := storageClient.GetPlaylistMetadata(cfg.DiscordGuildID, playlistConfig.Name)
 	segment.End()
 
 	refreshNeeded := true
@@ -111,7 +111,7 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 
 	if existingPlaylist != nil {
 		deleteSegment := txn.StartSegment("delete-old-playlist")
-		if err := redisClient.DeletePlaylist(cfg.DiscordGuildID, playlistConfig.Name); err != nil {
+		if err := storageClient.DeletePlaylist(cfg.DiscordGuildID, playlistConfig.Name); err != nil {
 			log.Printf("warning: failed to delete old playlist '%s': %v", playlistConfig.Name, err)
 			txn.NoticeError(err)
 		}
@@ -119,7 +119,7 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 	}
 
 	storeSegment := txn.StartSegment("store-new-playlist")
-	if err := redisClient.StorePlaylist(playlist, cfg.DiscordGuildID); err != nil {
+	if err := storageClient.StorePlaylist(playlist, cfg.DiscordGuildID); err != nil {
 		txn.NoticeError(err)
 		storeSegment.End()
 		return err
@@ -151,7 +151,7 @@ func findDefaultPlaylist(playlistsConfig *models.PlaylistsConfig) string {
 }
 
 // Legacy function for backward compatibility - now deprecated
-func InitializePlaylist(ctx context.Context, cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application) error {
+func InitializePlaylist(ctx context.Context, cfg *config.Config, storageClient *storage.Client, nrApp *newrelic.Application) error {
 	log.Println("Warning: InitializePlaylist is deprecated, use InitializePlaylists instead")
-	return InitializePlaylists(ctx, cfg, redisClient, nrApp)
+	return InitializePlaylists(ctx, cfg, storageClient, nrApp)
 }

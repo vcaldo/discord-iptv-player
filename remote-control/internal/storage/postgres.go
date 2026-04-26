@@ -1,4 +1,4 @@
-package redis
+package storage
 
 import (
 	"context"
@@ -103,7 +103,7 @@ func migratePostgres(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func (c *Client) pgStorePlaylist(playlist *models.Playlist, guildID string) error {
-	return c.instrumentOperation("postgres-store-playlist", func() error {
+	return c.instrumentOperation("store-playlist", func() error {
 		ctx := context.Background()
 		tx, err := c.pg.Begin(ctx)
 		if err != nil {
@@ -168,7 +168,7 @@ func (c *Client) pgStorePlaylist(playlist *models.Playlist, guildID string) erro
 
 func (c *Client) pgGetPlaylist(guildID, playlistName string) (*models.Playlist, error) {
 	var playlist *models.Playlist
-	err := c.instrumentOperation("postgres-get-playlist", func() error {
+	err := c.instrumentOperation("get-playlist", func() error {
 		ctx := context.Background()
 		var source string
 		var updated time.Time
@@ -208,7 +208,7 @@ func (c *Client) pgGetPlaylist(guildID, playlistName string) (*models.Playlist, 
 
 func (c *Client) pgGetPlaylistMetadata(guildID, playlistName string) (*models.Playlist, error) {
 	var playlist *models.Playlist
-	err := c.instrumentOperation("postgres-get-playlist-metadata", func() error {
+	err := c.instrumentOperation("get-playlist-metadata", func() error {
 		ctx := context.Background()
 		var source string
 		var updated time.Time
@@ -238,7 +238,7 @@ func (c *Client) pgGetPlaylistMetadata(guildID, playlistName string) (*models.Pl
 
 func (c *Client) pgListPlaylists(guildID string) ([]string, error) {
 	var playlistNames []string
-	err := c.instrumentOperation("postgres-list-playlists", func() error {
+	err := c.instrumentOperation("list-playlists", func() error {
 		ctx := context.Background()
 		rows, err := c.pg.Query(ctx, `
 			SELECT name
@@ -269,7 +269,7 @@ func (c *Client) pgListPlaylists(guildID string) ([]string, error) {
 }
 
 func (c *Client) pgDeletePlaylist(guildID, playlistName string) error {
-	return c.instrumentOperation("postgres-delete-playlist", func() error {
+	return c.instrumentOperation("delete-playlist", func() error {
 		ctx := context.Background()
 		tag, err := c.pg.Exec(ctx, `DELETE FROM playlists WHERE guild_id = $1 AND name = $2`, guildID, playlistName)
 		if err != nil {
@@ -284,7 +284,7 @@ func (c *Client) pgDeletePlaylist(guildID, playlistName string) error {
 
 func (c *Client) pgGetChannel(guildID, playlistName string, channelID string) (*models.TvChannel, error) {
 	var channel *models.TvChannel
-	err := c.instrumentOperation("postgres-get-channel", func() error {
+	err := c.instrumentOperation("get-channel", func() error {
 		ctx := context.Background()
 		lookupID := channelID
 		channel = &models.TvChannel{}
@@ -315,7 +315,7 @@ func (c *Client) pgGetChannel(guildID, playlistName string, channelID string) (*
 
 func (c *Client) pgGetCategories(guildID string, playlistName string) ([]string, error) {
 	var categories []string
-	err := c.instrumentOperation("postgres-get-categories", func() error {
+	err := c.instrumentOperation("get-categories", func() error {
 		ctx := context.Background()
 		if err := c.pgEnsurePlaylistExists(ctx, guildID, playlistName); err != nil {
 			return err
@@ -351,7 +351,7 @@ func (c *Client) pgGetCategories(guildID string, playlistName string) ([]string,
 
 func (c *Client) pgGetChannelsByCategory(guildID, playlistName, category string) ([]models.TvChannel, error) {
 	var channels []models.TvChannel
-	err := c.instrumentOperation("postgres-get-channels-by-category", func() error {
+	err := c.instrumentOperation("get-channels-by-category", func() error {
 		ctx := context.Background()
 		if err := c.pgEnsurePlaylistExists(ctx, guildID, playlistName); err != nil {
 			return err
@@ -372,7 +372,7 @@ func (c *Client) pgGetChannelsByCategory(guildID, playlistName, category string)
 
 func (c *Client) pgGetCategoryStats(guildID, playlistName string) (map[string]int, error) {
 	categoryStats := make(map[string]int)
-	err := c.instrumentOperation("postgres-get-category-stats", func() error {
+	err := c.instrumentOperation("get-category-stats", func() error {
 		ctx := context.Background()
 		if err := c.pgEnsurePlaylistExists(ctx, guildID, playlistName); err != nil {
 			return err
@@ -409,7 +409,7 @@ func (c *Client) pgGetCategoryStats(guildID, playlistName string) (map[string]in
 
 func (c *Client) pgSearchChannels(guildID, playlistName, query string) ([]models.TvChannel, error) {
 	var channels []models.TvChannel
-	err := c.instrumentOperation("postgres-search-channels", func() error {
+	err := c.instrumentOperation("search-channels", func() error {
 		ctx := context.Background()
 		if err := c.pgEnsurePlaylistExists(ctx, guildID, playlistName); err != nil {
 			return err
@@ -431,7 +431,7 @@ func (c *Client) pgSearchChannels(guildID, playlistName, query string) ([]models
 }
 
 func (c *Client) pgSetCurrentPlaylist(guildID, playlistName string) error {
-	return c.instrumentOperation("postgres-set-current-playlist", func() error {
+	return c.instrumentOperation("set-current-playlist", func() error {
 		_, err := c.pg.Exec(context.Background(), `
 			INSERT INTO current_playlists (guild_id, playlist_name, updated_at)
 			VALUES ($1, $2, now())
@@ -448,7 +448,7 @@ func (c *Client) pgSetCurrentPlaylist(guildID, playlistName string) error {
 
 func (c *Client) pgGetCurrentPlaylist(guildID string) (string, error) {
 	var playlistName string
-	err := c.instrumentOperation("postgres-get-current-playlist", func() error {
+	err := c.instrumentOperation("get-current-playlist", func() error {
 		err := c.pg.QueryRow(context.Background(), `
 			SELECT playlist_name
 			FROM current_playlists
@@ -520,7 +520,7 @@ func (c *Client) pgKeys(ctx context.Context, pattern string) ([]string, error) {
 		WHERE key LIKE $1 ESCAPE '\'
 			AND (expires_at IS NULL OR expires_at > now())
 		ORDER BY key`,
-		redisPatternToSQLLike(pattern))
+		wildcardPatternToSQLLike(pattern))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list keys from PostgreSQL: %w", err)
 	}
@@ -586,7 +586,7 @@ func (c *Client) pgQueryChannels(ctx context.Context, query string, args ...any)
 	return channels, nil
 }
 
-func redisPatternToSQLLike(pattern string) string {
+func wildcardPatternToSQLLike(pattern string) string {
 	var builder strings.Builder
 	for _, char := range pattern {
 		switch char {

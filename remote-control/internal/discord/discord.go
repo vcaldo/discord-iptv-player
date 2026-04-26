@@ -13,13 +13,13 @@ import (
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/models"
-	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/storage"
 )
 
 type Bot struct {
 	session *discordgo.Session
 	config  *config.Config
-	redis   *redis.Client
+	storage *storage.Client
 
 	// Metrics counters consumed by the periodic state writer so the nri-flex
 	// monitor can publish them as ValdiviaIptvRemoteControl events.
@@ -31,7 +31,7 @@ type Bot struct {
 	lastCommandName     atomic.Value // string
 }
 
-func NewBot(cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application) (*Bot, error) {
+func NewBot(cfg *config.Config, storageClient *storage.Client, nrApp *newrelic.Application) (*Bot, error) {
 	txn := nrApp.StartTransaction("discord:initialize-bot")
 	defer txn.End()
 
@@ -52,7 +52,7 @@ func NewBot(cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Appli
 	return &Bot{
 		session:   session,
 		config:    cfg,
-		redis:     redisClient,
+		storage:   storageClient,
 		startTime: time.Now(),
 	}, nil
 }
@@ -115,7 +115,7 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 	// Start periodic task manager
 	go b.startPeriodicTaskManager(ctx, config, nrApp)
 
-	// Publish a state snapshot to the selected storage engine every few seconds for the
+	// Publish a state snapshot to PostgreSQL every few seconds for the
 	// nri-flex monitor to scrape.
 	go b.runStateWriter(ctx)
 
@@ -162,9 +162,9 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 		}
 
 		txn.AddAttribute("input_value", focusedValue)
-		// Get categories from the selected storage engine.
+		// Get categories from PostgreSQL.
 		getSegment := txn.StartSegment("get_categories")
-		categories, err := b.redis.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
+		categories, err := b.storage.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
 		if err != nil {
 			getSegment.End()
 			txn.NoticeError(err)
@@ -174,7 +174,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 
 		// Get category stats to show channel counts
 		getStatsSegment := txn.StartSegment("get_category_stats")
-		categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, b.getCurrentPlaylist(config))
+		categoryStats, err := b.storage.GetCategoryStats(config.DiscordGuildID, b.getCurrentPlaylist(config))
 		if err != nil {
 			getStatsSegment.End()
 			txn.NoticeError(err)
@@ -328,7 +328,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 }
 
 func (b *Bot) getCurrentPlaylist(config *config.Config) string {
-	currentPlaylist, err := b.redis.GetCurrentPlaylist(config.DiscordGuildID)
+	currentPlaylist, err := b.storage.GetCurrentPlaylist(config.DiscordGuildID)
 	if err != nil || currentPlaylist == "" {
 		return "default"
 	}

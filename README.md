@@ -8,8 +8,7 @@ The project consists of the following components:
 
 - **TV Player** (`tv-player2/`): Core service that handles video streaming to Discord voice channels (uses discord-video-stream v6)
 - **Remote Control**: Discord bot that provides commands for controlling playback
-- **Redis**: Message broker for pub/sub communication between components
-- **PostgreSQL**: Optional persistent storage for playlists, channels, search, and runtime state
+- **PostgreSQL**: Persistent storage for playlists, channels, search/runtime state, and `LISTEN`/`NOTIFY` command delivery between services
 - **New Relic Monitoring**: Optional infrastructure for performance monitoring
 
 ```
@@ -20,7 +19,7 @@ The project consists of the following components:
 │                 │     └─────────────────┘
 └───────┬─────────┘
         │
-        │ Redis PubSub
+        │ PostgreSQL LISTEN/NOTIFY
         ▼
 ┌─────────────────┐     ┌─────────────────┐
 │                 │     │                 │
@@ -47,8 +46,7 @@ The project consists of the following components:
 - Docker and Docker Compose (for containerized deployment)
 - Node.js 20+ and npm/bun (for local development)
 - Go 1.26+ (for local development of remote-control)
-- Redis server (or use the included Docker container)
-- PostgreSQL server when `STORAGE_ENGINE=postgres` (or use the included Docker container)
+- PostgreSQL server (or use the included Docker container)
 - Discord bot token and permissions
 - Discord selfbot token (for streaming capability)
 
@@ -153,14 +151,8 @@ The project consists of the following components:
 - `STREAM_HARDWARE_ACCELERATION`: Use hardware acceleration (default: false)
 - `STREAM_VIDEO_CODEC`: Video codec to use - VP8, VP9, H264, or H265 (default: VP8)
 
-#### Redis Configuration
-- `REDIS_HOST`: Redis server hostname (required)
-- `REDIS_PORT`: Redis server port (required)
-- `REDIS_PASSWORD`: Redis password (optional)
-- `REDIS_PUB_SUB_CHANNEL`: Redis pub/sub channel for control messages (default: "iptv")
-
-#### Storage Configuration
-- `STORAGE_ENGINE`: Persistent storage engine for playlist/channel data and runtime key/value state. Use `redis` or `postgres` (default: `redis`).
+#### PostgreSQL Configuration
+- `CONTROL_CHANNEL`: PostgreSQL `LISTEN`/`NOTIFY` channel for control messages. Must match remote-control (default: `iptv`).
 - `POSTGRES_DSN`: PostgreSQL connection string (optional; overrides individual PostgreSQL fields)
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`, `POSTGRES_SSLMODE`: PostgreSQL connection fields used when `POSTGRES_DSN` is not set
 
@@ -168,10 +160,7 @@ The project consists of the following components:
 
 - `DISCORD_TOKEN`: Discord bot token
 - `DISCORD_GUILD_ID`: Target Discord guild ID
-- `REDIS_ADDRESS`: Redis server address (host:port)
-- `REDIS_PASSWORD`: Redis password (optional)
-- `REDIS_PUB_SUB_CHANNEL`: Redis pub/sub channel for control messages
-- `STORAGE_ENGINE`: Persistent storage engine for playlist/channel data and runtime key/value state. Use `redis` or `postgres` (default: `redis`).
+- `CONTROL_CHANNEL`: PostgreSQL `LISTEN`/`NOTIFY` channel for control messages. Must match tv-player2 (default: `iptv`).
 - `POSTGRES_DSN`: PostgreSQL connection string (optional; overrides individual PostgreSQL fields)
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`, `POSTGRES_SSLMODE`: PostgreSQL connection fields used when `POSTGRES_DSN` is not set
 - `PLAYLIST_PATH`: Path to M3U playlist file

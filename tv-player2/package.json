@@ -13,7 +13,6 @@
   "dependencies": {
     "@dank074/discord-video-stream": "6.0.0",
     "discord.js-selfbot-v13": "^3.7.1",
-    "ioredis": "^5.6.1",
     "newrelic": "^12.18.2",
     "pg": "^8.20.0"
   },

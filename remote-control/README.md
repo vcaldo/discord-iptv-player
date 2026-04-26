@@ -7,7 +7,7 @@ The Remote Control component is a Discord bot written in Go that provides a user
 - Discord slash command interface for controlling IPTV playback
 - M3U playlist support with automatic parsing
 - Channel search functionality with formatted results
-- Redis pub/sub messaging for communication with the TV Player service
+- PostgreSQL `LISTEN`/`NOTIFY` messaging for communication with the TV Player service
 - New Relic instrumentation for performance monitoring
 - Graceful shutdown handling
 - Docker support for containerized deployment
@@ -19,11 +19,11 @@ The Remote Control component follows a modular architecture:
 ```
 ┌───────────────┐      ┌───────────────┐      ┌──────────────┐
 │               │      │               │      │              │
-│  Discord API  │◄────►│  Remote       │◄────►│  Redis       │
+│  Discord API  │◄────►│  Remote       │◄────►│  PostgreSQL  │
 │               │      │  Control Bot  │      │              │
 └───────────────┘      └───────┬───────┘      └──────┬───────┘
                                │                     │
-                               │                     │
+                               │                     │ LISTEN/NOTIFY
                                ▼                     ▼
                        ┌───────────────┐      ┌──────────────┐
                        │               │      │              │
@@ -35,8 +35,8 @@ The Remote Control component follows a modular architecture:
 
 ## Prerequisites
 
-- Go 1.24 or higher
-- Redis server
+- Go 1.26 or higher
+- PostgreSQL server
 - Discord bot token with proper permissions
 - M3U playlist URL for IPTV channels
 
@@ -86,11 +86,16 @@ The Remote Control component uses environment variables for configuration. For y
    # Comma-separated list of Discord user IDs that are blacklisted from using certain commands
    BLACKLISTED_USERS=123456789012345678,987654321098765432
 
-   # Redis Configuration
-   REDIS_ADDRESS=localhost:6379
-   REDIS_PASSWORD=
-   REDIS_DB=0
-   REDIS_PUB_SUB_CHANNEL=iptv
+   # PostgreSQL command bus
+   CONTROL_CHANNEL=iptv
+
+   # PostgreSQL storage
+   POSTGRES_HOST=localhost
+   POSTGRES_PORT=5432
+   POSTGRES_USER=postgres
+   POSTGRES_PASSWORD=postgres
+   POSTGRES_DATABASE=discord_iptv_player
+   POSTGRES_SSLMODE=disable
 
    # Playlist Configuration
    PLAYLIST_URL=https://example.com/playlist.m3u
@@ -110,10 +115,14 @@ The Remote Control component uses environment variables for configuration. For y
 | DISCORD_GUILD_ID | ID of the Discord server | Yes | - |
 | DISCORD_VIDEO_CHANNEL_ID | ID of the Discord voice channel | Yes | - |
 | BLACKLISTED_USERS | Comma-separated list of Discord user IDs to blacklist from using restricted commands (tv, yt, stop, restart, playlist) | No | - |
-| REDIS_ADDRESS | Redis server address | No | localhost:6379 |
-| REDIS_PASSWORD | Redis server password | No | - |
-| REDIS_DB | Redis database number | No | 0 |
-| REDIS_PUB_SUB_CHANNEL | Redis channel for pub/sub messaging | No | iptv |
+| CONTROL_CHANNEL | PostgreSQL `LISTEN`/`NOTIFY` channel for TV Player commands; must match tv-player2 | No | iptv |
+| POSTGRES_DSN | PostgreSQL connection string overriding individual connection fields | No | - |
+| POSTGRES_HOST | PostgreSQL server hostname | No | localhost |
+| POSTGRES_PORT | PostgreSQL server port | No | 5432 |
+| POSTGRES_USER | PostgreSQL user | No | postgres |
+| POSTGRES_PASSWORD | PostgreSQL password | No | - |
+| POSTGRES_DATABASE | PostgreSQL database name | No | discord_iptv_player |
+| POSTGRES_SSLMODE | PostgreSQL SSL mode | No | disable |
 | PLAYLIST_URL | URL to M3U playlist | Yes | - |
 | PLAYLIST_NAME | Name identifier for the playlist | No | iptv |
 | PLAYLIST_MAX_AGE_DAYS | Maximum age of cached playlist | No | 10 |
@@ -129,7 +138,7 @@ The Remote Control component uses environment variables for configuration. For y
 ./remote-control
 
 # Using Docker
-docker run -p 6379:6379 --env-file .env discord-iptv-remote-control
+docker run --env-file .env discord-iptv-remote-control
 ```
 
 ### Available Discord Commands
@@ -213,7 +222,7 @@ remote-control/
 │   ├── discord/             # Discord bot implementation
 │   ├── m3u/                 # M3U playlist parsing
 │   ├── models/              # Data models
-│   └── redis/               # Redis client implementation
+│   └── storage/             # PostgreSQL storage and command bus
 ├── Dockerfile               # Docker build configuration
 ├── go.mod                   # Go module definition
 ├── go.sum                   # Go module checksums
@@ -245,10 +254,10 @@ GOOS=linux GOARCH=amd64 go build -o remote-control ./cmd/remote-control
    - Check the M3U format is correct
    - Inspect logs for parsing errors
 
-3. **Cannot connect to Redis**
-   - Verify Redis server is running
-   - Check Redis connection details (address, password)
-   - Ensure network connectivity between the bot and Redis
+3. **Cannot connect to PostgreSQL**
+   - Verify PostgreSQL is running
+   - Check PostgreSQL connection details or `POSTGRES_DSN`
+   - Ensure network connectivity between the bot and PostgreSQL
 
 ## License
 

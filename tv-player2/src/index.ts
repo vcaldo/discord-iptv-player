@@ -1,19 +1,15 @@
 import newrelic from "newrelic";
 import { Client, CustomStatus, ActivityOptions } from "discord.js-selfbot-v13";
 import { Streamer, prepareStream, playStream, Encoders } from "@dank074/discord-video-stream";
-import { Redis } from "ioredis";
 import pg from "pg";
+import type { PoolClient } from "pg";
 
 const { Pool } = pg;
 
 // --- Config ---
 const TOKEN = requiredEnv("TOKEN");
 const GUILD_ID = requiredEnv("GUILD_ID");
-const REDIS_HOST = process.env.REDIS_HOST ?? "redis";
-const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? "6379", 10);
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD ?? "";
-const REDIS_CHANNEL = process.env.REDIS_PUB_SUB_CHANNEL ?? "iptv";
-const STORAGE_ENGINE = normalizeStorageEngine(process.env.STORAGE_ENGINE ?? "redis");
+const CONTROL_CHANNEL = normalizeControlChannel(process.env.CONTROL_CHANNEL ?? "iptv");
 const POSTGRES_DSN = process.env.POSTGRES_DSN ?? "";
 const POSTGRES_HOST = process.env.POSTGRES_HOST ?? "postgres";
 const POSTGRES_PORT = process.env.POSTGRES_PORT ?? "5432";
@@ -40,20 +36,21 @@ function requiredEnv(name: string): string {
     return value;
 }
 
-function normalizeStorageEngine(value: string): "redis" | "postgres" {
-    switch (value.trim().toLowerCase()) {
-        case "":
-        case "redis":
-            return "redis";
-        case "pg":
-        case "pgsql":
-        case "postgresql":
-        case "postgres":
-            return "postgres";
-        default:
-            console.error(`Unsupported STORAGE_ENGINE: ${value}. Use "redis" or "postgres".`);
-            process.exit(1);
+function normalizeControlChannel(value: string): string {
+    const channel = value.trim();
+    if (!channel) {
+        console.error("CONTROL_CHANNEL cannot be empty");
+        process.exit(1);
     }
+    if (Buffer.byteLength(channel, "utf8") > 63 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(channel)) {
+        console.error(`Invalid CONTROL_CHANNEL: ${value}. Use [A-Za-z_][A-Za-z0-9_]* with at most 63 bytes.`);
+        process.exit(1);
+    }
+    return channel;
+}
+
+function quoteIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, "\"\"")}"`;
 }
 
 function postgresConnectionString(): string {
@@ -68,7 +65,7 @@ function postgresConnectionString(): string {
 }
 
 // --- Types ---
-interface RedisMessage {
+interface ControlMessage {
     command: string;
     title: string;
     url: string;
@@ -80,8 +77,9 @@ const client = new Client();
 const streamer = new Streamer(client);
 let currentAbortController: AbortController | null = null;
 let inVoiceChannel = false;
+let commandListener: PoolClient | null = null;
 
-// Metrics state — periodically flushed to the selected storage engine at key
+// Metrics state — periodically flushed to PostgreSQL at key
 // `tv_player:state` for the nri-flex monitor. All counters are monotonically
 // increasing since process start.
 const startedAt = Date.now() / 1000;
@@ -109,9 +107,9 @@ client.on("ready", async () => {
     if (botId) {
         try {
             await setStorageValue("tv_player_bot_id", botId);
-            console.log(`[discord] Bot ID ${botId} saved to ${STORAGE_ENGINE}`);
+            console.log(`[discord] Bot ID ${botId} saved to PostgreSQL`);
         } catch (err) {
-            console.error(`[discord] Failed to save bot ID to ${STORAGE_ENGINE}:`, err);
+            console.error("[discord] Failed to save bot ID to PostgreSQL:", err);
         }
     }
 });
@@ -272,50 +270,51 @@ async function handleStop() {
     });
 }
 
-// --- Redis ---
-const pubClient = new Redis({
-    host: REDIS_HOST,
-    port: REDIS_PORT,
-    password: REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => {
-        if (times >= 10) return null;
-        return Math.min(times * 1000, 30000);
-    },
+// --- PostgreSQL command bus and storage ---
+const storagePool = new Pool({
+    connectionString: postgresConnectionString(),
+    max: POSTGRES_MAX_CONNS,
 });
 
-const subClient = pubClient.duplicate({ enableReadyCheck: false });
-const storagePool = STORAGE_ENGINE === "postgres"
-    ? new Pool({
-        connectionString: postgresConnectionString(),
-        max: POSTGRES_MAX_CONNS,
-    })
-    : null;
+storagePool.on("error", (err) => {
+    console.error("[postgres] Pool error:", err);
+});
 
-pubClient.on("connect", () => console.log("[redis] Connected (pub)"));
-pubClient.on("error", (err) => console.error("[redis] Pub client error:", err));
-subClient.on("connect", () => console.log("[redis] Connected (sub)"));
-subClient.on("error", (err) => console.error("[redis] Sub client error:", err));
+async function startCommandListener(): Promise<void> {
+    const listener = await storagePool.connect();
+    commandListener = listener;
 
-subClient.subscribe(REDIS_CHANNEL, (err) => {
-    if (err) {
-        console.error(`[redis] Failed to subscribe to ${REDIS_CHANNEL}:`, err);
-        return;
+    listener.on("notification", (notification) => {
+        if (notification.channel !== CONTROL_CHANNEL) return;
+        void handleControlMessage(notification.payload ?? "");
+    });
+    listener.on("error", (err) => {
+        console.error("[postgres] Command listener error:", err);
+        void shutdown("postgres-listener-error", 1);
+    });
+
+    try {
+        await listener.query(`LISTEN ${quoteIdentifier(CONTROL_CHANNEL)}`);
+        console.log(`[postgres] Listening for commands on channel: ${CONTROL_CHANNEL}`);
+    } catch (err) {
+        commandListener = null;
+        listener.release();
+        throw err;
     }
-    console.log(`[redis] Subscribed to channel: ${REDIS_CHANNEL}`);
-});
+}
 
-subClient.on("message", async (_channel: string, raw: string) => {
-    await newrelic.startBackgroundTransaction("handle-message", "Redis", async () => {
-        let msg: RedisMessage;
+async function handleControlMessage(raw: string): Promise<void> {
+    await newrelic.startBackgroundTransaction("handle-message", "PostgreSQL", async () => {
+        let msg: ControlMessage;
         try {
             msg = JSON.parse(raw);
         } catch {
-            console.error("[redis] Failed to parse message:", raw.substring(0, 100));
+            console.error("[postgres] Failed to parse message:", raw.substring(0, 100));
             return;
         }
 
         if (!msg.command) {
-            console.error("[redis] Message missing command field");
+            console.error("[postgres] Message missing command field");
             return;
         }
 
@@ -327,7 +326,7 @@ subClient.on("message", async (_channel: string, raw: string) => {
         if (msg.title) newrelic.addCustomAttribute("title", msg.title);
         if (msg.url) newrelic.addCustomAttribute("url", msg.url);
 
-        console.log(`[redis] Received command: ${msg.command}`, {
+        console.log(`[postgres] Received command: ${msg.command}`, {
             title: msg.title,
             url: msg.url?.substring(0, 50),
             channel: msg.voice_channel_id,
@@ -350,22 +349,21 @@ subClient.on("message", async (_channel: string, raw: string) => {
                 case "restart":
                     console.log("[restart] Restarting...");
                     process.exit(0);
-                    break;
 
                 default:
-                    console.warn(`[redis] Unknown command: ${msg.command}`);
+                    console.warn(`[postgres] Unknown command: ${msg.command}`);
             }
         } catch (err) {
             newrelic.noticeError(err as Error);
-            console.error("[redis] Error handling message:", err);
+            console.error("[postgres] Error handling message:", err);
         }
     });
-});
+}
 
 // --- Shutdown ---
 let shuttingDown = false;
 
-async function shutdown(signal: string) {
+async function shutdown(signal: string, exitCode = 0) {
     if (shuttingDown) return;
     shuttingDown = true;
 
@@ -385,20 +383,20 @@ async function shutdown(signal: string) {
     }
 
     try {
-        pubClient.disconnect();
-        subClient.disconnect();
+        commandListener?.release();
+        commandListener = null;
     } catch {
         // ignore
     }
 
     try {
-        await storagePool?.end();
+        await storagePool.end();
     } catch {
         // ignore
     }
 
     console.log("[shutdown] Done");
-    process.exit(0);
+    process.exit(exitCode);
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
@@ -415,13 +413,11 @@ process.on("unhandledRejection", (reason) => {
 // --- Start ---
 console.log("=== tv-player2 starting ===");
 console.log(`Stream: ${STREAM_WIDTH}x${STREAM_HEIGHT}@${STREAM_FPS}fps ${STREAM_VIDEO_CODEC} ${STREAM_BITRATE_KBPS}kbps`);
-console.log(`Redis: ${REDIS_HOST}:${REDIS_PORT} channel=${REDIS_CHANNEL}`);
-console.log(`Storage: ${STORAGE_ENGINE}`);
+console.log(`PostgreSQL command channel: ${CONTROL_CHANNEL}`);
+console.log(`Storage: PostgreSQL`);
 console.log("New Relic monitoring: Enabled");
 
 async function initializeStorage(): Promise<void> {
-    if (!storagePool) return;
-
     const maxAttempts = 3;
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -452,15 +448,6 @@ async function initializeStorage(): Promise<void> {
 }
 
 async function setStorageValue(key: string, value: string, ttlSeconds?: number): Promise<void> {
-    if (!storagePool) {
-        if (ttlSeconds) {
-            await pubClient.set(key, value, "EX", ttlSeconds);
-        } else {
-            await pubClient.set(key, value);
-        }
-        return;
-    }
-
     const expiresAt = ttlSeconds ? new Date(Date.now() + ttlSeconds * 1000) : null;
     await storagePool.query(`
         INSERT INTO key_values (key, value, expires_at, updated_at)
@@ -506,7 +493,7 @@ async function writeState(): Promise<void> {
         await setStorageValue(STATE_KEY, JSON.stringify(state), STATE_TTL_SEC);
     } catch (err) {
         // Never crash the bot just because metrics write failed.
-        console.error(`[metrics] Failed to write state to ${STORAGE_ENGINE}:`, err);
+        console.error("[metrics] Failed to write state to PostgreSQL:", err);
     }
 }
 
@@ -517,6 +504,7 @@ stateInterval.unref?.();
 
 try {
     await initializeStorage();
+    await startCommandListener();
     await client.login(TOKEN);
 } catch (err) {
     console.error("[startup] Failed to start tv-player2:", err);

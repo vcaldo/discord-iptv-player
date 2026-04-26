@@ -9,7 +9,6 @@ services:
     volumes:
       - ./playlists.yaml:/app/playlists.yaml
     depends_on:
-      - redis
       - postgres
 
   tv-player:
@@ -23,7 +22,6 @@ services:
     env_file:
       - tv-player2/.env
     depends_on:
-      - redis
       - postgres
       - remote-control
     logging:
@@ -31,21 +29,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  redis:
-    image: redis:8.6
-    container_name: discord-iptv-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
   postgres:
     image: postgres:17
@@ -81,5 +64,4 @@ services:
   #   restart: unless-stopped
 
 volumes:
-  redis-data:
   postgres-data:

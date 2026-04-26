@@ -11,7 +11,7 @@ import (
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/config"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/discord"
 	"github.com/vcaldo/discord-iptv-player/remote_control/internal/m3u"
-	"github.com/vcaldo/discord-iptv-player/remote_control/internal/redis"
+	"github.com/vcaldo/discord-iptv-player/remote_control/internal/storage"
 )
 
 func main() {
@@ -39,16 +39,16 @@ func main() {
 		time.Sleep(250 * time.Millisecond)
 	}
 
-	redisClient, err := redis.NewClient(ctx, config, nrApp)
+	storageClient, err := storage.NewClient(ctx, config, nrApp)
 	if err != nil {
-		log.Fatalf("error initializing Redis client: %v", err)
+		log.Fatalf("error initializing PostgreSQL storage: %v", err)
 	}
-	defer redisClient.Close()
-	if err := m3u.InitializePlaylists(ctx, config, redisClient, nrApp); err != nil {
+	defer storageClient.Close()
+	if err := m3u.InitializePlaylists(ctx, config, storageClient, nrApp); err != nil {
 		log.Fatalf("error initializing playlists: %v", err)
 	}
 
-	discordBot, err := discord.NewBot(config, redisClient, nrApp)
+	discordBot, err := discord.NewBot(config, storageClient, nrApp)
 	if err != nil {
 		log.Fatalf("error initializing Discord bot: %v", err)
 	}

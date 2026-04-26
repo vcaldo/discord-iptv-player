@@ -113,7 +113,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		})
 		return err
 	}
-	channel, err := b.redis.GetChannel(config.DiscordGuildID, b.getCurrentPlaylist(config), channelID)
+	channel, err := b.storage.GetChannel(config.DiscordGuildID, b.getCurrentPlaylist(config), channelID)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -132,7 +132,7 @@ func (b *Bot) handleTvCommand(ctx context.Context, s *discordgo.Session, i *disc
 		VoiceChannelID: userVoiceState.ChannelID,
 	}
 
-	err = b.redis.RemoteControlCommand(remoteControlCommand)
+	err = b.storage.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -198,7 +198,7 @@ func (b *Bot) handleYoutubeCommand(ctx context.Context, s *discordgo.Session, i 
 		Url:     youtubeURL,
 	}
 
-	err = b.redis.RemoteControlCommand(remoteControlCommand)
+	err = b.storage.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -250,7 +250,7 @@ func (b *Bot) handleStopCommand(ctx context.Context, s *discordgo.Session, i *di
 		Command: models.StopCommand,
 	}
 
-	err = b.redis.RemoteControlCommand(remoteControlCommand)
+	err = b.storage.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -295,9 +295,9 @@ func (b *Bot) handleSearchCommand(ctx context.Context, s *discordgo.Session, i *
 		return err
 	}
 	parseSegment.End()
-	// Search channels through the selected storage engine.
+	// Search channels through PostgreSQL.
 	searchSegment := txn.StartSegment("search_channels")
-	channels, err := b.redis.SearchChannels(config.DiscordGuildID, b.getCurrentPlaylist(config), searchQuery)
+	channels, err := b.storage.SearchChannels(config.DiscordGuildID, b.getCurrentPlaylist(config), searchQuery)
 	if err != nil {
 		searchSegment.End()
 		txn.NoticeError(err)
@@ -412,9 +412,9 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 	txn.AddAttribute("guild_id", config.DiscordGuildID)
 	txn.AddAttribute("user_id", i.Member.User.ID)
 	txn.AddAttribute("user_name", i.Member.User.Username)
-	// Get categories directly from the selected storage engine.
+	// Get categories directly from PostgreSQL.
 	getSegment := txn.StartSegment("get_categories")
-	categories, err := b.redis.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
+	categories, err := b.storage.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
 	if err != nil {
 		getSegment.End()
 		txn.NoticeError(err)
@@ -427,7 +427,7 @@ func (b *Bot) handleCategoriesCommand(ctx context.Context, s *discordgo.Session,
 
 	// Get category counts
 	getStatsSegment := txn.StartSegment("get_category_stats")
-	categoryStats, err := b.redis.GetCategoryStats(config.DiscordGuildID, b.getCurrentPlaylist(config))
+	categoryStats, err := b.storage.GetCategoryStats(config.DiscordGuildID, b.getCurrentPlaylist(config))
 	if err != nil {
 		getStatsSegment.End()
 		txn.NoticeError(err)
@@ -562,7 +562,7 @@ func (b *Bot) handleListChannelsInCategoryCommand(ctx context.Context, s *discor
 	parseSegment.End()
 	// Get channels for the specified category
 	getChannelsSegment := txn.StartSegment("get_channels_by_category")
-	channels, err := b.redis.GetChannelsByCategory(config.DiscordGuildID, b.getCurrentPlaylist(config), category)
+	channels, err := b.storage.GetChannelsByCategory(config.DiscordGuildID, b.getCurrentPlaylist(config), category)
 	if err != nil {
 		getChannelsSegment.End()
 		txn.NoticeError(err)
@@ -723,8 +723,8 @@ func (b *Bot) handlePlaylistCommand(ctx context.Context, s *discordgo.Session, i
 		return err
 	}
 
-	// Set the current playlist in the selected storage engine.
-	err = b.redis.SetCurrentPlaylist(config.DiscordGuildID, playlistName)
+	// Set the current playlist in PostgreSQL.
+	err = b.storage.SetCurrentPlaylist(config.DiscordGuildID, playlistName)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -777,7 +777,7 @@ func (b *Bot) handleRestartCommand(ctx context.Context, s *discordgo.Session, i 
 		Command: models.RestartCommand,
 	}
 
-	err = b.redis.RemoteControlCommand(remoteControlCommand)
+	err = b.storage.RemoteControlCommand(remoteControlCommand)
 	if err != nil {
 		txn.NoticeError(err)
 		_, msgErr := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
@@ -804,9 +804,9 @@ func (b *Bot) handleCatalogCommand(ctx context.Context, s *discordgo.Session, i 
 	currentPlaylist := b.getCurrentPlaylist(config)
 	txn.AddAttribute("playlist_name", currentPlaylist)
 
-	// Get the playlist from the selected storage engine.
+	// Get the playlist from PostgreSQL.
 	getPlaylistSegment := txn.StartSegment("get_playlist")
-	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, currentPlaylist)
+	playlist, err := b.storage.GetPlaylist(config.DiscordGuildID, currentPlaylist)
 	if err != nil {
 		getPlaylistSegment.End()
 		txn.NoticeError(err)
@@ -1033,9 +1033,9 @@ func (b *Bot) handleCsvCommand(ctx context.Context, s *discordgo.Session, i *dis
 	currentPlaylist := b.getCurrentPlaylist(config)
 	txn.AddAttribute("playlist_name", currentPlaylist)
 
-	// Get the playlist from the selected storage engine.
+	// Get the playlist from PostgreSQL.
 	getPlaylistSegment := txn.StartSegment("get_playlist")
-	playlist, err := b.redis.GetPlaylist(config.DiscordGuildID, currentPlaylist)
+	playlist, err := b.storage.GetPlaylist(config.DiscordGuildID, currentPlaylist)
 	if err != nil {
 		getPlaylistSegment.End()
 		txn.NoticeError(err)

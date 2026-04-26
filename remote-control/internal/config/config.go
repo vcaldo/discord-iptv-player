@@ -11,21 +11,12 @@ import (
 	"github.com/kelseyhightower/envconfig"
 )
 
-const (
-	StorageEngineRedis    = "redis"
-	StorageEnginePostgres = "postgres"
-)
-
 type Config struct {
 	DiscordToken        string `envconfig:"DISCORD_BOT_TOKEN" required:"true"`
 	DiscordGuildID      string `envconfig:"DISCORD_GUILD_ID" required:"true"`
 	NewRelicAppName     string `envconfig:"NEW_RELIC_APP_NAME" default:"Discord IPTV Player - Remote Control"`
 	NewRelicLicenseKey  string `envconfig:"NEW_RELIC_LICENSE_KEY" default:""`
-	StorageEngine       string `envconfig:"STORAGE_ENGINE" default:"redis"`
-	RedisAddress        string `envconfig:"REDIS_ADDRESS" default:"localhost:6379"`
-	RedisPassword       string `envconfig:"REDIS_PASSWORD" default:""`
-	RedisDB             int    `envconfig:"REDIS_DB" default:"0"`
-	RedisPubSubChannel  string `envconfig:"REDIS_PUB_SUB_CHANNEL" default:"iptv"`
+	ControlChannel      string `envconfig:"CONTROL_CHANNEL" default:"iptv"`
 	PostgresDSN         string `envconfig:"POSTGRES_DSN" default:""`
 	PostgresHost        string `envconfig:"POSTGRES_HOST" default:"localhost"`
 	PostgresPort        string `envconfig:"POSTGRES_PORT" default:"5432"`
@@ -47,23 +38,34 @@ func LoadConfig() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, err
 	}
-	if _, err := cfg.NormalizedStorageEngine(); err != nil {
+	controlChannel, err := cfg.NormalizedControlChannel()
+	if err != nil {
 		return nil, err
 	}
+	cfg.ControlChannel = controlChannel
 
 	log.Printf("configuration loaded")
 	return &cfg, nil
 }
 
-func (c *Config) NormalizedStorageEngine() (string, error) {
-	switch strings.ToLower(strings.TrimSpace(c.StorageEngine)) {
-	case "", StorageEngineRedis:
-		return StorageEngineRedis, nil
-	case "pg", "pgsql", "postgresql", StorageEnginePostgres:
-		return StorageEnginePostgres, nil
-	default:
-		return "", fmt.Errorf("unsupported STORAGE_ENGINE %q (use %q or %q)", c.StorageEngine, StorageEngineRedis, StorageEnginePostgres)
+func (c *Config) NormalizedControlChannel() (string, error) {
+	channel := strings.TrimSpace(c.ControlChannel)
+	if channel == "" {
+		return "", fmt.Errorf("CONTROL_CHANNEL cannot be empty")
 	}
+	if len(channel) > 63 {
+		return "", fmt.Errorf("CONTROL_CHANNEL %q is too long; PostgreSQL channel names are limited to 63 bytes", channel)
+	}
+	for i, char := range channel {
+		valid := char == '_' ||
+			(char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(i > 0 && char >= '0' && char <= '9')
+		if !valid {
+			return "", fmt.Errorf("CONTROL_CHANNEL %q must match [A-Za-z_][A-Za-z0-9_]*", channel)
+		}
+	}
+	return channel, nil
 }
 
 func (c *Config) PostgresConnString() string {

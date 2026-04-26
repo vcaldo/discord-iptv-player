@@ -35,7 +35,7 @@ type remoteControlState struct {
 }
 
 // runStateWriter periodically serialises the bot's metric state and stores
-// it in the selected storage engine so the host-side nri-flex collector can scrape it without
+// it in PostgreSQL so the host-side nri-flex collector can scrape it without
 // having to touch Discord directly.
 func (b *Bot) runStateWriter(ctx context.Context) {
 	ticker := time.NewTicker(writeStateInterval)
@@ -80,5 +80,5 @@ func (b *Bot) writeState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return b.redis.SetEx(ctx, stateKey, string(payload), stateTTL)
+	return b.storage.SetEx(ctx, stateKey, string(payload), stateTTL)
 }

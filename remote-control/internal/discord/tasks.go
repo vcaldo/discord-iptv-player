@@ -29,8 +29,8 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 	// Find TV player bot's voice state (not this remote control bot)
 	getBotVoiceStateSegment := txn.StartSegment("get_tv_player_bot_voice_state")
 
-	// Get TV player bot ID from the selected storage engine.
-	tvPlayerBotID := b.redis.GetID("tv_player_bot_id")
+	// Get TV player bot ID from PostgreSQL.
+	tvPlayerBotID := b.storage.GetID("tv_player_bot_id")
 	if tvPlayerBotID == "" {
 		getBotVoiceStateSegment.End()
 		log.Printf("TV player bot ID not found in storage, skipping alone check")
@@ -111,7 +111,7 @@ func (b *Bot) isBotAlone(ctx context.Context, config *config.Config, nrApp *newr
 			Command: models.StopCommand,
 		}
 
-		err = b.redis.RemoteControlCommand(remoteControlCommand)
+		err = b.storage.RemoteControlCommand(remoteControlCommand)
 		if err != nil {
 			stopSegment.End()
 			txn.NoticeError(err)
