@@ -89,6 +89,18 @@ func (c *Client) instrumentOperation(operationName string, fn func() error) erro
 	return err
 }
 
+// SetEx writes a string value at key with a TTL. Used by the metrics state
+// writer so that a crashed process doesn't leave stale data sitting in Redis.
+func (c *Client) SetEx(ctx context.Context, key, value string, ttl time.Duration) error {
+	return c.rdb.Set(ctx, key, value, ttl).Err()
+}
+
+// PingRaw exposes a thin Ping wrapper for callers that just need to check
+// liveness without going through the instrumented operation pipeline.
+func (c *Client) PingRaw(ctx context.Context) (string, error) {
+	return c.rdb.Ping(ctx).Result()
+}
+
 func (c *Client) StorePlaylist(playlist *models.Playlist, guildID string) error {
 	return c.instrumentOperation("store-playlist", func() error {
 		ctx := context.Background()
