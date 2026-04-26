@@ -69,7 +69,7 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 	defer txn.End()
 
 	txn.AddAttribute("playlist_name", playlistConfig.Name)
-	segment := txn.StartSegment("check-playlist-metadata-in-redis")
+	segment := txn.StartSegment("check-playlist-metadata-in-storage")
 	existingPlaylist, err := redisClient.GetPlaylistMetadata(cfg.DiscordGuildID, playlistConfig.Name)
 	segment.End()
 
@@ -79,13 +79,13 @@ func initializeSinglePlaylist(ctx context.Context, cfg *config.Config, redisClie
 
 		maxAgeDuration := time.Duration(playlistConfig.MaxAgeDays) * 24 * time.Hour
 		if time.Since(existingPlaylist.Updated) < maxAgeDuration {
-			log.Printf("using existing playlist '%s' from redis, updated %s ago", playlistConfig.Name, time.Since(existingPlaylist.Updated).Round(time.Second))
+			log.Printf("using existing playlist '%s' from storage, updated %s ago", playlistConfig.Name, time.Since(existingPlaylist.Updated).Round(time.Second))
 			refreshNeeded = false
 		} else {
 			log.Printf("playlist '%s' is older than max age (%d days), downloading new one", playlistConfig.Name, playlistConfig.MaxAgeDays)
 		}
 	} else {
-		log.Printf("no playlist '%s' found in redis: %v. downloading new one", playlistConfig.Name, err)
+		log.Printf("no playlist '%s' found in storage: %v. downloading new one", playlistConfig.Name, err)
 		txn.NoticeError(err)
 	}
 

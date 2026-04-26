@@ -8,7 +8,8 @@ The project consists of the following components:
 
 - **TV Player** (`tv-player2/`): Core service that handles video streaming to Discord voice channels (uses discord-video-stream v6)
 - **Remote Control**: Discord bot that provides commands for controlling playback
-- **Redis**: Message broker for communication between components
+- **Redis**: Message broker for pub/sub communication between components
+- **PostgreSQL**: Optional persistent storage for playlists, channels, search, and runtime state
 - **New Relic Monitoring**: Optional infrastructure for performance monitoring
 
 ```
@@ -47,6 +48,7 @@ The project consists of the following components:
 - Node.js 20+ and npm/bun (for local development)
 - Go 1.26+ (for local development of remote-control)
 - Redis server (or use the included Docker container)
+- PostgreSQL server when `STORAGE_ENGINE=postgres` (or use the included Docker container)
 - Discord bot token and permissions
 - Discord selfbot token (for streaming capability)
 
@@ -157,13 +159,21 @@ The project consists of the following components:
 - `REDIS_PASSWORD`: Redis password (optional)
 - `REDIS_PUB_SUB_CHANNEL`: Redis pub/sub channel for control messages (default: "iptv")
 
+#### Storage Configuration
+- `STORAGE_ENGINE`: Persistent storage engine for playlist/channel data and runtime key/value state. Use `redis` or `postgres` (default: `redis`).
+- `POSTGRES_DSN`: PostgreSQL connection string (optional; overrides individual PostgreSQL fields)
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`, `POSTGRES_SSLMODE`: PostgreSQL connection fields used when `POSTGRES_DSN` is not set
+
 ### Remote Control Configuration
 
 - `DISCORD_TOKEN`: Discord bot token
 - `DISCORD_GUILD_ID`: Target Discord guild ID
-- `REDIS_ADDR`: Redis server address (host:port)
+- `REDIS_ADDRESS`: Redis server address (host:port)
 - `REDIS_PASSWORD`: Redis password (optional)
 - `REDIS_PUB_SUB_CHANNEL`: Redis pub/sub channel for control messages
+- `STORAGE_ENGINE`: Persistent storage engine for playlist/channel data and runtime key/value state. Use `redis` or `postgres` (default: `redis`).
+- `POSTGRES_DSN`: PostgreSQL connection string (optional; overrides individual PostgreSQL fields)
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`, `POSTGRES_SSLMODE`: PostgreSQL connection fields used when `POSTGRES_DSN` is not set
 - `PLAYLIST_PATH`: Path to M3U playlist file
 
 ## Usage

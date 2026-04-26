@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// stateKey is the Redis key under which the bot publishes its current
+// stateKey is the storage key under which the bot publishes its current
 // operational state for the nri-flex monitor to scrape via the discord-iptv
 // monitor binary running on the host.
 const stateKey = "remote_control:state"
@@ -35,7 +35,7 @@ type remoteControlState struct {
 }
 
 // runStateWriter periodically serialises the bot's metric state and stores
-// it in Redis so the host-side nri-flex collector can scrape it without
+// it in the selected storage engine so the host-side nri-flex collector can scrape it without
 // having to touch Discord directly.
 func (b *Bot) runStateWriter(ctx context.Context) {
 	ticker := time.NewTicker(writeStateInterval)

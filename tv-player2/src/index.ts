@@ -2,6 +2,9 @@ import newrelic from "newrelic";
 import { Client, CustomStatus, ActivityOptions } from "discord.js-selfbot-v13";
 import { Streamer, prepareStream, playStream, Encoders } from "@dank074/discord-video-stream";
 import { Redis } from "ioredis";
+import pg from "pg";
+
+const { Pool } = pg;
 
 // --- Config ---
 const TOKEN = requiredEnv("TOKEN");
@@ -10,6 +13,15 @@ const REDIS_HOST = process.env.REDIS_HOST ?? "redis";
 const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? "6379", 10);
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD ?? "";
 const REDIS_CHANNEL = process.env.REDIS_PUB_SUB_CHANNEL ?? "iptv";
+const STORAGE_ENGINE = normalizeStorageEngine(process.env.STORAGE_ENGINE ?? "redis");
+const POSTGRES_DSN = process.env.POSTGRES_DSN ?? "";
+const POSTGRES_HOST = process.env.POSTGRES_HOST ?? "postgres";
+const POSTGRES_PORT = process.env.POSTGRES_PORT ?? "5432";
+const POSTGRES_USER = process.env.POSTGRES_USER ?? "postgres";
+const POSTGRES_PASSWORD = process.env.POSTGRES_PASSWORD ?? "";
+const POSTGRES_DATABASE = process.env.POSTGRES_DATABASE ?? "discord_iptv_player";
+const POSTGRES_SSLMODE = process.env.POSTGRES_SSLMODE ?? "disable";
+const POSTGRES_MAX_CONNS = parseInt(process.env.POSTGRES_MAX_CONNS ?? "5", 10);
 
 const STREAM_WIDTH = parseInt(process.env.STREAM_WIDTH ?? "1920", 10);
 const STREAM_HEIGHT = parseInt(process.env.STREAM_HEIGHT ?? "1080", 10);
@@ -28,6 +40,33 @@ function requiredEnv(name: string): string {
     return value;
 }
 
+function normalizeStorageEngine(value: string): "redis" | "postgres" {
+    switch (value.trim().toLowerCase()) {
+        case "":
+        case "redis":
+            return "redis";
+        case "pg":
+        case "pgsql":
+        case "postgresql":
+        case "postgres":
+            return "postgres";
+        default:
+            console.error(`Unsupported STORAGE_ENGINE: ${value}. Use "redis" or "postgres".`);
+            process.exit(1);
+    }
+}
+
+function postgresConnectionString(): string {
+    if (POSTGRES_DSN.trim() !== "") {
+        return POSTGRES_DSN;
+    }
+
+    const credentials = POSTGRES_PASSWORD
+        ? `${encodeURIComponent(POSTGRES_USER)}:${encodeURIComponent(POSTGRES_PASSWORD)}`
+        : encodeURIComponent(POSTGRES_USER);
+    return `postgres://${credentials}@${POSTGRES_HOST}:${POSTGRES_PORT}/${encodeURIComponent(POSTGRES_DATABASE)}?sslmode=${encodeURIComponent(POSTGRES_SSLMODE)}`;
+}
+
 // --- Types ---
 interface RedisMessage {
     command: string;
@@ -42,8 +81,9 @@ const streamer = new Streamer(client);
 let currentAbortController: AbortController | null = null;
 let inVoiceChannel = false;
 
-// Metrics state — periodically flushed to Redis at key `tv_player:state` for the
-// nri-flex monitor. All counters are monotonically increasing since process start.
+// Metrics state — periodically flushed to the selected storage engine at key
+// `tv_player:state` for the nri-flex monitor. All counters are monotonically
+// increasing since process start.
 const startedAt = Date.now() / 1000;
 let currentTitle = "";
 let currentUrl = "";
@@ -64,14 +104,14 @@ client.on("ready", async () => {
     console.log(`[discord] Logged in as ${client.user?.tag}`);
     setIdleStatus();
 
-    // Save bot ID to redis for the remote-control service
+    // Save bot ID for the remote-control service.
     const botId = client.user?.id;
     if (botId) {
         try {
-            await pubClient.set("tv_player_bot_id", botId);
-            console.log(`[discord] Bot ID ${botId} saved to Redis`);
+            await setStorageValue("tv_player_bot_id", botId);
+            console.log(`[discord] Bot ID ${botId} saved to ${STORAGE_ENGINE}`);
         } catch (err) {
-            console.error("[discord] Failed to save bot ID to Redis:", err);
+            console.error(`[discord] Failed to save bot ID to ${STORAGE_ENGINE}:`, err);
         }
     }
 });
@@ -244,6 +284,12 @@ const pubClient = new Redis({
 });
 
 const subClient = pubClient.duplicate({ enableReadyCheck: false });
+const storagePool = STORAGE_ENGINE === "postgres"
+    ? new Pool({
+        connectionString: postgresConnectionString(),
+        max: POSTGRES_MAX_CONNS,
+    })
+    : null;
 
 pubClient.on("connect", () => console.log("[redis] Connected (pub)"));
 pubClient.on("error", (err) => console.error("[redis] Pub client error:", err));
@@ -345,6 +391,12 @@ async function shutdown(signal: string) {
         // ignore
     }
 
+    try {
+        await storagePool?.end();
+    } catch {
+        // ignore
+    }
+
     console.log("[shutdown] Done");
     process.exit(0);
 }
@@ -364,11 +416,64 @@ process.on("unhandledRejection", (reason) => {
 console.log("=== tv-player2 starting ===");
 console.log(`Stream: ${STREAM_WIDTH}x${STREAM_HEIGHT}@${STREAM_FPS}fps ${STREAM_VIDEO_CODEC} ${STREAM_BITRATE_KBPS}kbps`);
 console.log(`Redis: ${REDIS_HOST}:${REDIS_PORT} channel=${REDIS_CHANNEL}`);
+console.log(`Storage: ${STORAGE_ENGINE}`);
 console.log("New Relic monitoring: Enabled");
 
-// Periodic state writer for the nri-flex collector. Writes a JSON snapshot to
-// Redis at `tv_player:state` with TTL so a crashed process doesn't leave stale
-// data lying around forever.
+async function initializeStorage(): Promise<void> {
+    if (!storagePool) return;
+
+    const maxAttempts = 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            await storagePool.query(`
+                CREATE TABLE IF NOT EXISTS key_values (
+                    key text PRIMARY KEY,
+                    value text NOT NULL,
+                    expires_at timestamptz,
+                    updated_at timestamptz NOT NULL DEFAULT now()
+                )
+            `);
+            await storagePool.query(`
+                CREATE INDEX IF NOT EXISTS key_values_expires_at_idx
+                    ON key_values (expires_at) WHERE expires_at IS NOT NULL
+            `);
+            return;
+        } catch (err) {
+            lastError = err;
+            console.error(`[storage] PostgreSQL initialization attempt ${attempt}/${maxAttempts} failed:`, err);
+            if (attempt < maxAttempts) {
+                await sleep(attempt * 2000);
+            }
+        }
+    }
+
+    throw lastError;
+}
+
+async function setStorageValue(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    if (!storagePool) {
+        if (ttlSeconds) {
+            await pubClient.set(key, value, "EX", ttlSeconds);
+        } else {
+            await pubClient.set(key, value);
+        }
+        return;
+    }
+
+    const expiresAt = ttlSeconds ? new Date(Date.now() + ttlSeconds * 1000) : null;
+    await storagePool.query(`
+        INSERT INTO key_values (key, value, expires_at, updated_at)
+        VALUES ($1, $2, $3, now())
+        ON CONFLICT (key) DO UPDATE SET
+            value = EXCLUDED.value,
+            expires_at = EXCLUDED.expires_at,
+            updated_at = EXCLUDED.updated_at
+    `, [key, value, expiresAt]);
+}
+
+// Periodic state writer for the nri-flex collector. Writes a JSON snapshot at
+// `tv_player:state` with TTL so a crashed process doesn't leave stale data.
 async function writeState(): Promise<void> {
     try {
         const state = {
@@ -398,10 +503,10 @@ async function writeState(): Promise<void> {
             last_command_at: lastCommandAt,
             last_error: lastError.substring(0, 256),
         };
-        await pubClient.set(STATE_KEY, JSON.stringify(state), "EX", STATE_TTL_SEC);
+        await setStorageValue(STATE_KEY, JSON.stringify(state), STATE_TTL_SEC);
     } catch (err) {
         // Never crash the bot just because metrics write failed.
-        console.error("[metrics] Failed to write state to Redis:", err);
+        console.error(`[metrics] Failed to write state to ${STORAGE_ENGINE}:`, err);
     }
 }
 
@@ -410,10 +515,13 @@ const stateInterval = setInterval(() => {
 }, 5000);
 stateInterval.unref?.();
 
-client.login(TOKEN).catch((err) => {
-    console.error("[discord] Login failed:", err);
+try {
+    await initializeStorage();
+    await client.login(TOKEN);
+} catch (err) {
+    console.error("[startup] Failed to start tv-player2:", err);
     process.exit(1);
-});
+}
 
 // --- Util ---
 function sleep(ms: number): Promise<void> {

@@ -23,12 +23,12 @@ type Bot struct {
 
 	// Metrics counters consumed by the periodic state writer so the nri-flex
 	// monitor can publish them as ValdiviaIptvRemoteControl events.
-	startTime          time.Time
-	commandsHandled    atomic.Int64
+	startTime           time.Time
+	commandsHandled     atomic.Int64
 	autocompletesServed atomic.Int64
-	commandErrors      atomic.Int64
-	lastCommandAt      atomic.Int64 // unix seconds
-	lastCommandName    atomic.Value // string
+	commandErrors       atomic.Int64
+	lastCommandAt       atomic.Int64 // unix seconds
+	lastCommandName     atomic.Value // string
 }
 
 func NewBot(cfg *config.Config, redisClient *redis.Client, nrApp *newrelic.Application) (*Bot, error) {
@@ -115,7 +115,7 @@ func (b *Bot) Start(ctx context.Context, config *config.Config, nrApp *newrelic.
 	// Start periodic task manager
 	go b.startPeriodicTaskManager(ctx, config, nrApp)
 
-	// Publish a state snapshot to Redis every few seconds for the
+	// Publish a state snapshot to the selected storage engine every few seconds for the
 	// nri-flex monitor to scrape.
 	go b.runStateWriter(ctx)
 
@@ -162,7 +162,7 @@ func (b *Bot) handleAutocomplete(ctx context.Context, s *discordgo.Session, i *d
 		}
 
 		txn.AddAttribute("input_value", focusedValue)
-		// Get categories from Redis
+		// Get categories from the selected storage engine.
 		getSegment := txn.StartSegment("get_categories")
 		categories, err := b.redis.GetCategories(config.DiscordGuildID, b.getCurrentPlaylist(config))
 		if err != nil {
